@@ -37,9 +37,12 @@ ENV NODE_ENV=production \
     PORT=3000 \
     TEMPLATES_DIR=/data/templates \
     FILES_DIR=/data/files \
-    PUPPETEER_SKIP_DOWNLOAD=true \
-    PUPPETEER_EXECUTABLE_PATH=/usr/bin/google-chrome-stable \
     PUPPETEER_SANDBOX=true
+# Do NOT set PUPPETEER_EXECUTABLE_PATH or PUPPETEER_SKIP_DOWNLOAD here. The
+# official Puppeteer base image ships Chromium in the puppeteer cache
+# (PUPPETEER_CACHE_DIR=/home/pptruser/.cache/puppeteer) and the puppeteer
+# library auto-discovers it. Overriding the path to /usr/bin/google-chrome-stable
+# breaks because that binary isn't installed in this image.
 
 # Pre-create the persistent data directories with the right ownership BEFORE
 # declaring the VOLUMEs. Without this, Docker creates anonymous volumes at
