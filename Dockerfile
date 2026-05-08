@@ -28,7 +28,11 @@ RUN npm run build && npm prune --omit=dev
 
 # ---------- runtime ----------
 # Official Puppeteer image — Chromium + system libs + non-root user pre-baked.
-FROM ghcr.io/puppeteer/puppeteer:24.15.0 AS runtime
+# IMPORTANT: keep this image tag in lockstep with the `puppeteer` version in
+# package.json. The base image ships a Chromium build matched to a specific
+# puppeteer release; a mismatch produces "Could not find Chrome (ver. X)" at
+# runtime.
+FROM ghcr.io/puppeteer/puppeteer:24.43.0 AS runtime
 
 WORKDIR /home/pptruser/app
 
