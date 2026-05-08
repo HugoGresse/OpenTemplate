@@ -4,9 +4,13 @@
 FROM node:24-bookworm-slim AS builder
 WORKDIR /app
 
-# Skip Chromium download in the builder — we use the official Puppeteer image
-# at runtime, which already ships Chromium.
-ENV PUPPETEER_SKIP_DOWNLOAD=true
+# Force a development install in the builder regardless of any NODE_ENV
+# build-arg the host (e.g. Coolify) may inject. We need typescript/tsx/etc.
+# from devDependencies to run `npm run build`. Setting NODE_ENV here overrides
+# any inherited value, and `--include=dev` is belt-and-braces in case some
+# npm config still pretends production.
+ENV NODE_ENV=development \
+    PUPPETEER_SKIP_DOWNLOAD=true
 
 # Copy the things postinstall (copy:monaco) needs FIRST, so they exist at the
 # moment `npm ci` triggers the lifecycle script.
@@ -15,7 +19,7 @@ COPY scripts ./scripts
 COPY public ./public
 
 RUN --mount=type=cache,target=/root/.npm \
-    npm ci
+    npm ci --include=dev
 
 # Now compile the TypeScript sources.
 COPY tsconfig.json ./
