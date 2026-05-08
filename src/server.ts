@@ -202,11 +202,37 @@ export async function buildApp(): Promise<FastifyInstance> {
   return app;
 }
 
+async function logStorageDiagnostics(app: FastifyInstance): Promise<void> {
+  const { promises: fs } = await import('node:fs');
+  for (const [label, dir] of [
+    ['templates', config.templatesDir],
+    ['files', config.filesDir]
+  ] as const) {
+    try {
+      const stat = await fs.stat(dir);
+      const entries = await fs.readdir(dir);
+      app.log.info(
+        {
+          dir,
+          mode: (stat.mode & 0o777).toString(8),
+          uid: stat.uid,
+          gid: stat.gid,
+          existingItems: entries.length
+        },
+        `storage:${label} ready`
+      );
+    } catch (err) {
+      app.log.error({ err, dir }, `storage:${label} unreachable`);
+    }
+  }
+}
+
 async function main() {
   // Warm Satori font cache so first render doesn't pay the network hit
   await warmupSatori();
 
   const app = await buildApp();
+  await logStorageDiagnostics(app);
 
   let shuttingDown = false;
   const shutdown = async (signal: string) => {
