@@ -5,6 +5,7 @@ import helmet from '@fastify/helmet';
 import cors from '@fastify/cors';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createRequire } from 'node:module';
 import { config } from './config.js';
 import { TemplateStore } from './storage/fs.js';
 import { FilesStore } from './storage/files.js';
@@ -17,6 +18,24 @@ import { warmupSatori } from './engines/satori.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.resolve(__dirname, '..', 'public');
+
+const localRequire = createRequire(import.meta.url);
+
+/**
+ * pino-pretty is a devDependency. In production builds we prune it, but
+ * NODE_ENV may not be reliably set (e.g. by some PaaS hosts), so detect at
+ * runtime instead of relying on the env var alone. Plain JSON is fine for
+ * prod ingestion and a safe fallback for any host that prunes devDeps.
+ */
+function buildLoggerTransport(): { target: string; options: Record<string, unknown> } | undefined {
+  if (config.isProduction) return undefined;
+  try {
+    localRequire.resolve('pino-pretty');
+  } catch {
+    return undefined;
+  }
+  return { target: 'pino-pretty', options: { colorize: true } };
+}
 
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({
@@ -34,9 +53,7 @@ export async function buildApp(): Promise<FastifyInstance> {
         ],
         censor: '[REDACTED]'
       },
-      transport: config.isProduction
-        ? undefined
-        : { target: 'pino-pretty', options: { colorize: true } }
+      transport: buildLoggerTransport()
     },
     bodyLimit: config.bodyLimitBytes,
     genReqId: () => `req_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`

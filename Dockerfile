@@ -26,16 +26,26 @@ RUN npm run build && npm prune --omit=dev
 # Official Puppeteer image — Chromium + system libs + non-root user pre-baked.
 FROM ghcr.io/puppeteer/puppeteer:24.15.0 AS runtime
 
-USER pptruser
 WORKDIR /home/pptruser/app
 
 ENV NODE_ENV=production \
     HOST=0.0.0.0 \
     PORT=3000 \
     TEMPLATES_DIR=/data/templates \
+    FILES_DIR=/data/files \
     PUPPETEER_SKIP_DOWNLOAD=true \
     PUPPETEER_EXECUTABLE_PATH=/usr/bin/google-chrome-stable \
     PUPPETEER_SANDBOX=true
+
+# Pre-create the persistent data directories with the right ownership BEFORE
+# declaring the VOLUMEs. Without this, Docker creates anonymous volumes at
+# runtime owned by root and pptruser cannot write to them. Doing it up-front
+# also lets us control mode bits.
+USER root
+RUN mkdir -p /data/templates /data/files \
+    && chown -R pptruser:pptruser /data \
+    && chmod -R 750 /data
+USER pptruser
 
 COPY --chown=pptruser:pptruser package.json package-lock.json* ./
 COPY --from=builder --chown=pptruser:pptruser /app/node_modules ./node_modules
@@ -43,7 +53,13 @@ COPY --from=builder --chown=pptruser:pptruser /app/dist ./dist
 # public/ from the builder includes vendor/monaco populated by postinstall
 COPY --from=builder --chown=pptruser:pptruser /app/public ./public
 
-VOLUME ["/data/templates"]
+# Persistent volumes:
+# - /data/templates  → JSON template definitions (CRUD via /templates)
+# - /data/files      → rendered PNG/PDF outputs from ?store=true (TTL-swept)
+# Mount each to its own named volume in prod so they survive container
+# rebuilds and can be backed up independently.
+VOLUME ["/data/templates", "/data/files"]
+
 EXPOSE 3000
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \

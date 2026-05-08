@@ -1,0 +1,36 @@
+# Reference compose for self-hosters (Coolify, Portainer, plain Docker).
+# Build the image locally or pull from a registry, then mount the two named
+# volumes so templates and stored renders survive container recreations.
+
+services:
+  opentemplate:
+    build: .
+    image: opentemplate:latest
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      # Required when AUTH_REQUIRED=true (default). Comma-separated list.
+      API_KEYS: ${API_KEYS:?set API_KEYS to a comma-separated list of keys}
+      # Optional knobs — uncomment to override defaults documented in .env.example
+      # PUPPETEER_ALLOW_PUBLIC: "true"
+      # INLINE_REMOTE_ASSETS: "true"
+      # FILES_TTL_SECONDS: "86400"
+      # CORS_ORIGINS: "https://your-frontend.example.com"
+    volumes:
+      - opentemplate_templates:/data/templates
+      - opentemplate_files:/data/files
+    healthcheck:
+      test:
+        - "CMD"
+        - "node"
+        - "-e"
+        - "fetch('http://127.0.0.1:'+process.env.PORT+'/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  opentemplate_templates:
+  opentemplate_files:
