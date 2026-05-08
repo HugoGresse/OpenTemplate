@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>OpenTemplate Editor</title>
+    <link rel="stylesheet" href="editor.css" />
+  </head>
+  <body>
+    <header>
+      <h1>OpenTemplate</h1>
+      <div class="settings">
+        <input id="apiKey" type="password" placeholder="App API key" autocomplete="off"
+          title="Backend API key (x-api-key) for /render and /templates" />
+        <button id="saveKey" type="button">Save</button>
+      </div>
+    </header>
+
+    <main>
+      <section class="left">
+        <div class="panel">
+          <h3>Template</h3>
+          <div class="meta">
+            <input id="tplName" placeholder="Template name" />
+            <input id="tplWidth" type="number" placeholder="width" value="1200" />
+            <input id="tplHeight" type="number" placeholder="height" value="630" />
+            <select id="tplEngine" aria-label="Engine">
+              <option value="auto">auto (Satori → Puppeteer)</option>
+              <option value="satori">satori</option>
+              <option value="puppeteer">puppeteer</option>
+            </select>
+          </div>
+
+          <div class="editor-block" id="block-html">
+            <div class="editor-bar">
+              <button class="btn-icon" data-collapse="html" type="button" aria-label="Collapse HTML">
+                <span class="caret">▾</span>
+              </button>
+              <label for="ed-html">HTML</label>
+              <span class="bar-spacer"></span>
+              <button class="btn-mini" data-format="html" type="button" title="Format (Alt+Shift+F)">Format</button>
+              <button class="btn-icon" data-focus="html" type="button" title="Maximize" aria-label="Focus HTML">⤢</button>
+            </div>
+            <div id="ed-html" class="monaco-host monaco-host-tall"></div>
+          </div>
+
+          <div class="editor-block" id="block-css">
+            <div class="editor-bar">
+              <button class="btn-icon" data-collapse="css" type="button" aria-label="Collapse CSS">
+                <span class="caret">▾</span>
+              </button>
+              <label for="ed-css">CSS</label>
+              <span class="bar-spacer"></span>
+              <button class="btn-mini" data-format="css" type="button" title="Format (Alt+Shift+F)">Format</button>
+              <button class="btn-icon" data-focus="css" type="button" title="Maximize" aria-label="Focus CSS">⤢</button>
+            </div>
+            <div id="ed-css" class="monaco-host"></div>
+          </div>
+
+          <div class="editor-block" id="block-data">
+            <div class="editor-bar">
+              <button class="btn-icon" data-collapse="data" type="button" aria-label="Collapse Data">
+                <span class="caret">▾</span>
+              </button>
+              <label for="ed-data">Data (JSON)</label>
+              <span class="bar-spacer"></span>
+              <button class="btn-mini" data-format="data" type="button" title="Format (Alt+Shift+F)">Format</button>
+              <button class="btn-icon" data-focus="data" type="button" title="Maximize" aria-label="Focus Data">⤢</button>
+            </div>
+            <div id="ed-data" class="monaco-host monaco-host-short"></div>
+          </div>
+        </div>
+
+        <div class="actions">
+          <button id="previewBtn" type="button">Preview PNG</button>
+          <button id="pdfBtn" type="button">Preview PDF</button>
+          <button id="bundleBtn" type="button">Download PNG + PDF</button>
+          <button id="snippetBtn" type="button" title="Show curl / fetch snippet for current state">⌨ Show API call</button>
+          <button id="saveTplBtn" type="button">Save Template</button>
+          <label class="toggle">
+            <input id="livePreview" type="checkbox" checked />
+            <span>Live preview</span>
+          </label>
+        </div>
+
+        <div class="panel">
+          <h3>Stored Templates</h3>
+          <div class="actions">
+            <select id="tplList" aria-label="Templates"></select>
+            <button id="loadTplBtn" type="button">Load</button>
+            <button id="delTplBtn" type="button">Delete</button>
+            <button id="newTplBtn" type="button">New</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="right">
+        <div class="preview-bar">
+          <div id="previewMeta" class="status" aria-live="polite"></div>
+          <span id="previewSpinner" class="spinner" hidden aria-hidden="true"></span>
+          <button id="designBtn" type="button" title="Drag elements in preview to reposition">✎ Design mode</button>
+          <button id="designApplyBtn" type="button" hidden>Apply</button>
+          <button id="designCancelBtn" type="button" hidden>Cancel</button>
+        </div>
+        <div id="preview"></div>
+      </section>
+    </main>
+
+    <div id="snippetModal" class="modal" hidden>
+      <div class="modal-card">
+        <div class="modal-head">
+          <strong>API call</strong>
+          <div class="tabs">
+            <button class="tab active" data-tab="png" type="button">PNG</button>
+            <button class="tab" data-tab="pdf" type="button">PDF</button>
+            <button class="tab" data-tab="bundle" type="button">Bundle</button>
+            <button class="tab" data-tab="bundle-stored" type="button">Bundle (stored id)</button>
+          </div>
+          <button class="modal-close" id="snippetClose" type="button" aria-label="Close">×</button>
+        </div>
+        <div class="modal-body">
+          <pre id="snippetCode"></pre>
+        </div>
+        <div class="modal-foot">
+          <button id="snippetCopy" type="button">Copy</button>
+          <span id="snippetStatus" class="status"></span>
+        </div>
+      </div>
+    </div>
+
+    <div id="toasts" aria-live="polite" aria-atomic="true"></div>
+
+    <script src="vendor/monaco/vs/loader.js"></script>
+    <script src="editor.js"></script>
+  </body>
+</html>

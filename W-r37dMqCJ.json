@@ -1,0 +1,23 @@
+{
+  "name": "Ampelhusv1",
+  "html": "<div id=\"canvas\" data-otid=\"el1\">\n  <div class=\"title\" data-otid=\"el2\"> {{{ title }}} </div>\n  <div class=\"num\" data-otid=\"el3\"> {{{ num }}} </div>\n  <div class=\"user\" data-otid=\"el4\">\n    {{{ user }}}\n  </div>\n  <div class=\"cepage label\" data-otid=\"el5\">\n    {{ cepage }}\n  </div>\n  <div class=\"annee label\" data-otid=\"el6\">\n    {{ annee }}\n  </div>\n  <div class=\"coord label\" data-otid=\"el7\">\n    {{ coord }}\n  </div>\n  <div class=\"anneeTitle labelTitle\" data-otid=\"el8\">\n    {{ anneeTitle }}\n  </div>\n  <div class=\"coordTitle labelTitle\" data-otid=\"el9\">\n    {{ coordTitle }}\n  </div>\n  <div class=\"cepTitle labelTitle\" data-otid=\"el10\">\n    {{ cepTitle }}\n  </div><div class=\"subtitle\" data-otid=\"el11\">\n    {{ subtitle }}\n  </div>\n</div>\n<link rel=\"stylesheet\" href=\"https://fonts.googleapis.com/css?family=Lato\" data-otid=\"el11\">",
+  "css": "body {\n  -webkit-font-smoothing: antialiased;\n  color: #e0ddd5;\n  margin: 0;\n  padding: 0;\n  max-height: 1000px;\n  overflow: hidden;\n  box-sizing: border-box;\n  background-color: #602E17;\n\n}\n\n#canvas {\n  width: 1004px;\n  height: 637px;\n  position: relative;\n  background-image: url(\"https://domaineampelhus.fr/wp-content/uploads/2026/05/CARTE-MEMBRE11.png\");\n}\n\n/*the following is to scale the layout*/\nhtml {\n  font-family: Avenir, arial, sans-serif;\n  box-sizing: border-box;\n  background-color: #602E17;\n  color: #e0ddd5;\n}\n\ndiv {\n  display: flex;\n}\n.title{ \n  color: #FFF;\n  font-size: 48px;\n  font-weight: bold;\n  font-style: bold;\n  max-width: 1000px;\n  line-height: 1.2;\n  position: absolute;\n}\n.user {\n  font-size: 48px;\n  max-width: 1000px;\n  line-height: 1.2;\n  position: absolute;\n  left: 7.2%;\n  top: 30%;\n  text-transform: uppercase;color: #FFF;\n}\n\n.label {\n  color: #c5c4bb;\n  left: 18.7%;\n  font-size: 30px;\n  position: absolute;\n}\n.labelTitle {\n  color: #C88B67;\n  left: 18.7%;\n  font-size: 26px;\n  font-weight: 800;\n  position: absolute;\n}\n.cepage {\n  top: 61%;\n}\n\n.annee {\n  top: 74%;\n  left: 18.4%;\n}\n\n.coord {\n  top: 87%;\n  left: 18.4%;\n}\n\n.num { \n  color: #C88B67;\n  position: absolute;\n    font-size: 40px;\n    font-weight: 800;font: \"arial\";\n}\n.subtitle{ \n  text-align: center;\n  color: #C88B67;\n    position: absolute;\n    font-style: italic;\n    font: \"arial\";\n    font-size: 20px;\n}\n\n/* design-mode positions */\n/* otid: el5 mode: pos baseLeft: 187.733 baseTop: 388.567 dx: -4 dy: -44 */\n[data-otid=\"el5\"] { left: 184px !important; top: 345px !important; }\n/* otid: el6 mode: pos baseLeft: 184.733 baseTop: 471.367 dx: -1 dy: -47 */\n[data-otid=\"el6\"] { left: 184px !important; top: 424px !important; }\n/* otid: el7 mode: pos baseLeft: 184.733 baseTop: 554.183 dx: 1 dy: -48 */\n[data-otid=\"el7\"] { left: 186px !important; top: 506px !important; }\n/* otid: el10 mode: pos baseLeft: 187.733 baseTop: 0 dx: -4 dy: 316 */\n[data-otid=\"el10\"] { left: 184px !important; top: 316px !important; }\n/* otid: el9 mode: pos baseLeft: 187.733 baseTop: 0 dx: -5 dy: 481 */\n[data-otid=\"el9\"] { left: 183px !important; top: 481px !important; }\n/* otid: el8 mode: pos baseLeft: 187.733 baseTop: 0 dx: -4 dy: 397 */\n[data-otid=\"el8\"] { left: 184px !important; top: 397px !important; }\n/* otid: el2 mode: pos baseLeft: 0 baseTop: 0 dx: 79 dy: 36 */\n[data-otid=\"el2\"] { left: 79px !important; top: 36px !important; }\n/* otid: el3 mode: pos baseLeft: 0 baseTop: 0 dx: 831 dy: 40 */\n[data-otid=\"el3\"] { left: 831px !important; top: 40px !important; }\n/* otid: el11 mode: pos baseLeft: 0 baseTop: 0 dx: 36 dy: 593 */\n[data-otid=\"el11\"] { left: 36px !important; top: 593px !important; }\n/* otid: el4 mode: pos baseLeft: 72.2833 baseTop: 191.1 dx: 7 dy: -40 */\n[data-otid=\"el4\"] { left: 79px !important; top: 151px !important; }\n",
+  "width": 1004,
+  "height": 638,
+  "engine": "auto",
+  "sampleData": {
+    "annee": "2024",
+    "title": "CARTE D'ENRACINÉ",
+    "user": "Franklin <br/>D. Roosevelt",
+    "coord": "54,432432432 23.32124121321",
+    "cepage": "Viognier grand",
+    "cepTitle": "CÉPAGE RARE ADOPTÉ",
+    "anneeTitle": "ANNÉE D'ADOPTION",
+    "coordTitle": "COORDONNÉES GPS DE LA PARCELLE",
+    "num": "N* 2",
+    "subtitle": "Les Enracinés - la communauté des gardiens d'un cépage rare du Languedoc au domaine Ampelhus"
+  },
+  "id": "W-r37dMqCJ",
+  "createdAt": "2026-05-08T19:53:20.188Z",
+  "updatedAt": "2026-05-08T21:10:21.605Z"
+}
