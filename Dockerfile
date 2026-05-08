@@ -44,15 +44,14 @@ ENV NODE_ENV=production \
 # library auto-discovers it. Overriding the path to /usr/bin/google-chrome-stable
 # breaks because that binary isn't installed in this image.
 
-# Pre-create the persistent data directories with the right ownership BEFORE
-# declaring the VOLUMEs. Without this, Docker creates anonymous volumes at
-# runtime owned by root and pptruser cannot write to them. Doing it up-front
-# also lets us control mode bits.
+# Run as root through this stage so we can pre-create dirs and so the
+# entrypoint can chown freshly-mounted volumes at start time. The entrypoint
+# drops privileges to pptruser before exec'ing node.
 USER root
+
 RUN mkdir -p /data/templates /data/files \
     && chown -R pptruser:pptruser /data \
     && chmod -R 750 /data
-USER pptruser
 
 COPY --chown=pptruser:pptruser package.json package-lock.json* ./
 COPY --from=builder --chown=pptruser:pptruser /app/node_modules ./node_modules
@@ -60,11 +59,15 @@ COPY --from=builder --chown=pptruser:pptruser /app/dist ./dist
 # public/ from the builder includes vendor/monaco populated by postinstall
 COPY --from=builder --chown=pptruser:pptruser /app/public ./public
 
+# Entrypoint chowns mounted volumes (Coolify et al. often create them as root)
+# and switches to pptruser. Required so saves don't silently fail on a
+# root-owned bind mount.
+COPY scripts/entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod 0755 /usr/local/bin/entrypoint.sh
+
 # Persistent volumes:
-# - /data/templates  → JSON template definitions (CRUD via /templates)
-# - /data/files      → rendered PNG/PDF outputs from ?store=true (TTL-swept)
-# Mount each to its own named volume in prod so they survive container
-# rebuilds and can be backed up independently.
+# - /data/templates  → JSON template definitions
+# - /data/files      → rendered PNG/PDF outputs from ?store=true
 VOLUME ["/data/templates", "/data/files"]
 
 EXPOSE 3000
@@ -72,4 +75,5 @@ EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD node -e "fetch('http://127.0.0.1:'+process.env.PORT+'/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 CMD ["node", "dist/server.js"]
