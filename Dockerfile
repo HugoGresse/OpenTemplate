@@ -41,7 +41,13 @@ ENV NODE_ENV=production \
     PORT=3000 \
     TEMPLATES_DIR=/data/templates \
     FILES_DIR=/data/files \
-    PUPPETEER_SANDBOX=true
+    # Sandbox OFF by default for container PaaS (Coolify, Fly, Railway, etc.).
+    # Most container hosts block Chromium's user-namespace sandbox (AppArmor on
+    # Ubuntu 23.10+, restricted seccomp profiles). Trade-off: Chrome's
+    # in-process sandbox is bypassed. Acceptable here because rendered HTML
+    # comes from the operator's own templates. Set to "true" if your host
+    # supports userns or you grant CAP_SYS_ADMIN to the container.
+    PUPPETEER_SANDBOX=false
 # Do NOT set PUPPETEER_EXECUTABLE_PATH or PUPPETEER_SKIP_DOWNLOAD here. The
 # official Puppeteer base image ships Chromium in the puppeteer cache
 # (PUPPETEER_CACHE_DIR=/home/pptruser/.cache/puppeteer) and the puppeteer

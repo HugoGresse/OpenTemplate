@@ -3,15 +3,17 @@ import rateLimit from '@fastify/rate-limit';
 import fastifyStatic from '@fastify/static';
 import helmet from '@fastify/helmet';
 import cors from '@fastify/cors';
+import swagger from '@fastify/swagger';
+import scalar from '@scalar/fastify-api-reference';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 import { config } from './config.js';
 import { TemplateStore } from './storage/fs.js';
 import { FilesStore } from './storage/files.js';
-import { buildRenderRoutes } from './routes/render.js';
-import { buildTemplateRoutes } from './routes/templates.js';
-import { buildFilesRoutes } from './routes/files.js';
+import { buildRenderRoutes } from './routes/render/index.js';
+import { buildTemplateRoutes } from './routes/templates/index.js';
+import { buildFilesRoutes } from './routes/files/index.js';
 import { authPlugin } from './auth.js';
 import { shutdownPuppeteer, puppeteerStats } from './engines/puppeteer.js';
 import { warmupSatori } from './engines/satori.js';
@@ -98,6 +100,67 @@ export async function buildApp(): Promise<FastifyInstance> {
     });
   }
 
+  // OpenAPI spec generated from route schemas. Mounted before routes so it
+  // can pick them up via the onRoute hook.
+  await app.register(swagger, {
+    openapi: {
+      openapi: '3.1.0',
+      info: {
+        title: 'OpenTemplate API',
+        description:
+          'Image (PNG) and PDF generation from HTML+CSS+JSON templates. ' +
+          'Satori is the primary engine; Puppeteer is the auto-fallback and the only ' +
+          'choice for PDF. Pass `?store=true` on any /render endpoint to persist ' +
+          'the output and get back a URL.',
+        version: '0.1.0'
+      },
+      servers: [{ url: '/' }],
+      tags: [
+        { name: 'render', description: 'Render PNG / PDF / both from inline or stored templates' },
+        { name: 'templates', description: 'CRUD for stored HTML+CSS+sample data templates' },
+        { name: 'files', description: 'Retrieve outputs persisted via ?store=true' },
+        { name: 'system', description: 'Health and metrics' }
+      ],
+      components: {
+        securitySchemes: {
+          apiKey: { type: 'apiKey', name: 'x-api-key', in: 'header' },
+          bearer: { type: 'http', scheme: 'bearer' }
+        }
+      },
+      security: [{ apiKey: [] }, { bearer: [] }]
+    }
+  });
+
+  // Scalar API Reference UI. Reads the OpenAPI spec @fastify/swagger generates.
+  await app.register(scalar, {
+    routePrefix: '/docs',
+    configuration: {
+      metaData: { title: 'OpenTemplate API' },
+      theme: 'default',
+      hideClientButton: false,
+      persistAuth: true
+    }
+  });
+
+  // Scalar's UI ships an inline init <script> + bundle from CDN. Override the
+  // strict CSP set by helmet for /docs/* responses only.
+  app.addHook('onSend', async (req, reply) => {
+    if (req.url.startsWith('/docs')) {
+      reply.header(
+        'content-security-policy',
+        [
+          "default-src 'self'",
+          "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net https://fonts.scalar.com",
+          "style-src 'self' 'unsafe-inline' https://fonts.scalar.com https://cdn.jsdelivr.net",
+          "img-src 'self' data: https:",
+          "font-src 'self' data: https://fonts.scalar.com",
+          "connect-src 'self' https:",
+          "worker-src 'self' blob:"
+        ].join('; ')
+      );
+    }
+  });
+
   await app.register(rateLimit, {
     global: true,
     max: config.rateLimit.global.max,
@@ -113,14 +176,18 @@ export async function buildApp(): Promise<FastifyInstance> {
     decorateReply: false
   });
 
-  app.get('/', async (_req, reply) => reply.redirect('/editor/'));
-  app.get('/health', async () => ({
-    ok: true,
-    ts: new Date().toISOString(),
-    puppeteer: puppeteerStats()
-  }));
+  app.get('/', { schema: { hide: true } }, async (_req, reply) => reply.redirect('/editor/'));
+  app.get(
+    '/health',
+    { schema: { tags: ['system'], summary: 'Liveness + Puppeteer queue snapshot' } },
+    async () => ({
+      ok: true,
+      ts: new Date().toISOString(),
+      puppeteer: puppeteerStats()
+    })
+  );
   // Lightweight Prometheus-style text exposition. Public so Prom can scrape.
-  app.get('/metrics', async (_req, reply) => {
+  app.get('/metrics', { schema: { tags: ['system'], summary: 'Prometheus metrics' } }, async (_req, reply) => {
     const stats = puppeteerStats();
     const mem = process.memoryUsage();
     const lines = [

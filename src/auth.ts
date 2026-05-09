@@ -6,7 +6,9 @@ const PUBLIC_PATHS = new Set<string>(['/', '/health', '/metrics']);
 // /files/ is public so stored render outputs can be embedded in <img>, shared
 // links, etc. Filenames carry 16-char nanoid (~95 bits) so brute force is
 // infeasible — treat the URL as a capability token.
-const PUBLIC_PREFIXES = ['/editor/', '/files/'];
+// /docs is public so callers can read the OpenAPI spec without an API key
+// (the spec doesn't reveal secrets; the try-it-out UI prompts for the key).
+const PUBLIC_PREFIXES = ['/editor/', '/files/', '/docs'];
 
 function extractKey(req: FastifyRequest): string | undefined {
   const header = req.headers['x-api-key'];
