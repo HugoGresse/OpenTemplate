@@ -6,6 +6,7 @@ import {
   attachAssetHeaders,
   buildSingleStoreResponse,
   checkPixelArea,
+  clampTimeout,
   renderBodySchema,
   shouldStore,
   storeQuerySchema,
@@ -23,7 +24,17 @@ export const buildPdfRoute =
           body: renderBodySchema,
           querystring: storeQuerySchema,
           tags: ['render'],
-          summary: 'Render PDF from inline HTML/CSS (always Puppeteer)'
+          summary: 'Render PDF from inline HTML/CSS',
+          description: [
+            'Always uses Puppeteer — Satori produces SVG only. Output is a single page sized to ',
+            '`{width, height}`. Returns `application/pdf` binary by default; `?store=true` returns JSON ',
+            'with a `/files/{id}.pdf` URL.',
+            '',
+            '**Hyperlinks** in `data._links` produce clickable PDF link annotations on matching ',
+            'elements (`data-otid` or selector).',
+            '',
+            'The `engine` field on the body is ignored — PDF is always Puppeteer.'
+          ].join('\n')
         }
       },
       async (req, reply) => {
@@ -38,7 +49,8 @@ export const buildPdfRoute =
           css: req.body.css,
           data: req.body.data,
           width,
-          height
+          height,
+          timeoutMs: clampTimeout(req.body.timeoutMs)
         };
         try {
           const result = await renderPdf(input);

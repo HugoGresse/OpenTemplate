@@ -6,7 +6,15 @@ export const buildGetTemplateRoute =
   async (app) => {
     app.get<{ Params: { id: string } }>(
       '/templates/:id',
-      { schema: { tags: ['templates'], summary: 'Get one template by id' } },
+      {
+        schema: {
+          tags: ['templates'],
+          summary: 'Get one template by id',
+          description:
+            'Returns the full Template object (`{id, name, html, css?, width?, height?, engine?, sampleData?, createdAt, updatedAt}`). ' +
+            '404 if not found.'
+        }
+      },
       async (req, reply) => {
         const t = await store.get(req.params.id);
         if (!t) return reply.code(404).send({ error: 'not_found' });

@@ -7,6 +7,7 @@ import {
   attachAssetHeaders,
   buildSingleStoreResponse,
   checkPixelArea,
+  clampTimeout,
   shouldStore,
   storeQuerySchema,
   storedRenderBodySchema,
@@ -24,7 +25,11 @@ export const buildStoredPdfRoute =
           body: storedRenderBodySchema,
           querystring: storeQuerySchema,
           tags: ['render'],
-          summary: 'Render a stored template as PDF'
+          summary: 'Render a stored template as PDF',
+          description: [
+            'Same data-resolution rules as `/render/{id}/png`. Always uses Puppeteer. ',
+            '`data._links` produces clickable annotations.'
+          ].join('\n')
         }
       },
       async (req, reply) => {
@@ -42,7 +47,8 @@ export const buildStoredPdfRoute =
             css: tpl.css,
             data: req.body?.data ?? tpl.sampleData,
             width,
-            height
+            height,
+            timeoutMs: clampTimeout(req.body?.timeoutMs)
           });
           if (shouldStore(req.query)) {
             return buildSingleStoreResponse(files, result, 'pdf', width, height);

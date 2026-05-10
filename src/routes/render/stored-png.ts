@@ -7,6 +7,7 @@ import {
   attachAssetHeaders,
   buildSingleStoreResponse,
   checkPixelArea,
+  clampTimeout,
   shouldStore,
   storeQuerySchema,
   storedRenderBodySchema,
@@ -24,7 +25,16 @@ export const buildStoredPngRoute =
           body: storedRenderBodySchema,
           querystring: storeQuerySchema,
           tags: ['render'],
-          summary: 'Render a stored template as PNG'
+          summary: 'Render a stored template as PNG',
+          description: [
+            'Renders the template identified by `:id` (created via `POST /templates`). ',
+            'Engine + dimensions come from the template; only `data` and `timeoutMs` may be sent in the body.',
+            '',
+            '**Data resolution:** body `data` overrides; if omitted, the template\'s `sampleData` is used. ',
+            'Send `data: {_links: {...}}` to attach links per-call without modifying the stored template.',
+            '',
+            '`?store=true` behaves the same as the inline endpoint — JSON URL response instead of binary.'
+          ].join('\n')
         }
       },
       async (req, reply) => {
@@ -43,7 +53,8 @@ export const buildStoredPngRoute =
             data: req.body?.data ?? tpl.sampleData,
             width,
             height,
-            engine: tpl.engine ?? 'auto'
+            engine: tpl.engine ?? 'auto',
+            timeoutMs: clampTimeout(req.body?.timeoutMs)
           });
           if (shouldStore(req.query)) {
             return buildSingleStoreResponse(files, result, 'png', width, height);

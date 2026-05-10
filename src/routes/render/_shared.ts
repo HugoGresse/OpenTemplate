@@ -4,33 +4,150 @@ import type { RenderResult } from '../../engines/render.js';
 import type { FilesStore } from '../../storage/files.js';
 
 // ---------- schemas (shared by every render route) ----------
+//
+// Hyperlinks are configured via the JSON `data._links` key, NOT a top-level
+// `links` field. Caller payload:
+//   "data": { "_links": { "el3": "https://example.com" } }
+// or full form:
+//   "data": { "_links": { "el3": { "url": "...", "title": "..." } } }
 
 export const renderBodySchema = {
   type: 'object',
   properties: {
-    html: { type: 'string', minLength: 1, maxLength: 200_000 },
-    css: { type: 'string', maxLength: 200_000 },
-    data: { type: 'object', additionalProperties: true },
-    width: { type: 'number', minimum: 1, maximum: config.maxDimension },
-    height: { type: 'number', minimum: 1, maximum: config.maxDimension },
-    engine: { type: 'string', enum: ['satori', 'puppeteer', 'auto'] }
+    html: {
+      type: 'string',
+      minLength: 1,
+      maxLength: 200_000,
+      description:
+        'HTML body. Mustache placeholders (`{{var}}`, `{{{var}}}`) substituted from `data`. ' +
+        'For Satori: flexbox-only CSS subset. For Puppeteer: any HTML. ' +
+        'Tag elements with `data-otid="..."` to make them targetable by `data._links`.'
+    },
+    css: {
+      type: 'string',
+      maxLength: 200_000,
+      description: 'CSS injected into a <style> block. Mustache substitution applies.'
+    },
+    data: {
+      type: 'object',
+      additionalProperties: true,
+      description:
+        'Mustache variables. Reserved key `_links` configures hyperlinks ' +
+        '(see top-level "Hyperlinks" section in the doc). `_links` is stripped ' +
+        'before interpolation; the remaining keys substitute as normal.'
+    },
+    width: {
+      type: 'number',
+      minimum: 1,
+      maximum: config.maxDimension,
+      description: `Output width in px (1–${config.maxDimension}). width × height must be ≤ ${config.maxPixelArea}.`
+    },
+    height: {
+      type: 'number',
+      minimum: 1,
+      maximum: config.maxDimension,
+      description: `Output height in px (1–${config.maxDimension}).`
+    },
+    engine: {
+      type: 'string',
+      enum: ['satori', 'puppeteer', 'auto'],
+      description:
+        'Rendering engine. `auto` (default) tries Satori then falls back to Puppeteer ' +
+        'on unsupported CSS. `puppeteer` is required for arbitrary CSS / scripts / external assets ' +
+        'fetched at render time.'
+    },
+    timeoutMs: {
+      type: 'number',
+      minimum: 1_000,
+      maximum: config.renderTimeoutMaxMs,
+      description:
+        `Per-request render timeout in ms. Defaults to RENDER_TIMEOUT_MS (30000). ` +
+        `Clamped server-side to [1000, ${config.renderTimeoutMaxMs}].`
+    }
   },
   required: ['html'],
-  additionalProperties: false
+  additionalProperties: false,
+  examples: [
+    {
+      summary: 'Minimal Satori-compatible',
+      value: {
+        html: '<div style="display:flex;width:600px;height:300px;background:#1e88e5;color:white;align-items:center;justify-content:center;font-size:32px;">Hello {{name}}</div>',
+        data: { name: 'World' },
+        width: 600,
+        height: 300
+      }
+    },
+    {
+      summary: 'With hyperlink (data._links)',
+      value: {
+        html: '<div data-otid="cta" style="display:flex;padding:20px;background:#43a047;color:white;font-size:24px;">{{label}}</div>',
+        data: {
+          label: 'Buy now',
+          _links: { cta: { url: 'https://example.com/buy', title: 'Open store' } }
+        },
+        width: 400,
+        height: 200,
+        engine: 'auto'
+      }
+    },
+    {
+      summary: 'Puppeteer with longer timeout',
+      value: {
+        html: '<div class="card">{{title}}</div>',
+        css: '.card { display: flex; padding: 24px; font-family: sans-serif; }',
+        data: { title: 'Slow render' },
+        width: 1200,
+        height: 630,
+        engine: 'puppeteer',
+        timeoutMs: 60000
+      }
+    }
+  ]
 } as const;
 
 export const storedRenderBodySchema = {
   type: 'object',
   properties: {
-    data: { type: 'object', additionalProperties: true }
+    data: {
+      type: 'object',
+      additionalProperties: true,
+      description:
+        'Per-request data. When omitted, the template\'s `sampleData` is used as fallback. ' +
+        'Reserved `_links` key applies the same way as on inline render.'
+    },
+    timeoutMs: {
+      type: 'number',
+      minimum: 1_000,
+      maximum: config.renderTimeoutMaxMs,
+      description: `Override global render timeout for this call. Capped at ${config.renderTimeoutMaxMs} ms.`
+    }
   },
-  additionalProperties: false
+  additionalProperties: false,
+  examples: [
+    { summary: 'Use template sample data', value: {} },
+    {
+      summary: 'Override data + add link',
+      value: {
+        data: {
+          name: 'Alice',
+          _links: { cta: 'https://example.com' }
+        }
+      }
+    }
+  ]
 } as const;
 
 export const storeQuerySchema = {
   type: 'object',
   properties: {
-    store: { type: 'string', enum: ['true', 'false', '1', '0'] }
+    store: {
+      type: 'string',
+      enum: ['true', 'false', '1', '0'],
+      description:
+        'When `true` or `1`, server writes the rendered output to /data/files and the response is a ' +
+        'JSON object `{id, url, format, engineUsed, width, height, size, expiresAt, …}` — NOT the ' +
+        'binary. URL is public for `FILES_TTL_SECONDS` (default 24h).'
+    }
   },
   additionalProperties: false
 } as const;
@@ -44,10 +161,18 @@ export interface AdHocBody {
   width?: number;
   height?: number;
   engine?: 'satori' | 'puppeteer' | 'auto';
+  timeoutMs?: number;
 }
 
 export interface StoredBody {
   data?: Record<string, unknown>;
+  timeoutMs?: number;
+}
+
+/** Clamp a caller-supplied timeoutMs to [1_000, RENDER_TIMEOUT_MAX_MS]. */
+export function clampTimeout(v: number | undefined): number | undefined {
+  if (v === undefined) return undefined;
+  return Math.max(1_000, Math.min(v, config.renderTimeoutMaxMs));
 }
 
 export interface StoreQuery {

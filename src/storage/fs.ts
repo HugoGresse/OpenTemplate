@@ -14,9 +14,16 @@ export interface Template {
   width?: number;
   height?: number;
   engine?: Engine;
-  // Optional default data for {{var}} interpolation. Used by the editor to
-  // round-trip the JSON pane and as a fallback by /render/:id/* when the
-  // caller doesn't supply `data` in the body.
+  /**
+   * Default data for {{var}} interpolation. Used by the editor to round-trip
+   * the JSON pane and as a fallback by /render/:id/* when the caller doesn't
+   * supply `data` in the body.
+   *
+   * Hyperlinks: include `_links` in this object — `{ "<otid>": "https://..." }`
+   * or `{ "<otid>": { "url": "...", "title": "..." } }`. The render pipeline
+   * extracts `_links`, wraps matched elements with <a>, then interpolates the
+   * remaining keys via Mustache.
+   */
   sampleData?: Record<string, unknown>;
   createdAt: string;
   updatedAt: string;

@@ -58,9 +58,11 @@ export interface SatoriRenderOptions {
   css?: string;
   width: number;
   height: number;
+  timeoutMs?: number;
 }
 
 export async function renderSatoriPng(opts: SatoriRenderOptions): Promise<Buffer> {
+  const timeoutMs = opts.timeoutMs ?? config.renderTimeoutMs;
   return withTimeout(
     (async () => {
       const font = await loadFont();
@@ -87,7 +89,7 @@ export async function renderSatoriPng(opts: SatoriRenderOptions): Promise<Buffer
       });
       return Buffer.from(resvg.render().asPng());
     })(),
-    config.renderTimeoutMs,
+    timeoutMs,
     'satori_png'
   );
 }

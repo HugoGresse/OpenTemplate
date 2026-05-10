@@ -125,6 +125,15 @@ label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; colo
 }
 .toggle input { margin: 0; }
 
+.hint { font-size: 11px; color: #888; font-weight: normal; text-transform: none; letter-spacing: 0; margin-left: 6px; }
+.links-list { display: flex; flex-direction: column; gap: 6px; }
+.link-row { display: flex; gap: 4px; align-items: center; }
+.link-row input { flex: 1; padding: 4px 6px; font-size: 12px; border: 1px solid #ccc; border-radius: 3px; min-width: 0; }
+.link-row input.link-target { flex: 0 0 110px; }
+.link-row .btn-mini { padding: 2px 8px; }
+.link-row .link-del { background: #fbe9e9; border-color: #c62828; color: #c62828; }
+.link-row .link-del:hover { background: #f5cccc; }
+
 button {
   padding: 6px 12px;
   font-size: 12px;

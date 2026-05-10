@@ -10,7 +10,17 @@ export const buildGetFileRoute =
       {
         schema: {
           tags: ['files'],
-          summary: 'Fetch a stored render output (PNG or PDF) by filename'
+          summary: 'Fetch a stored render output (PNG or PDF) by filename',
+          description: [
+            '**Public** — no API key required. Filenames are 16-char nanoid + `.png|.pdf`, ',
+            'returned by `/render/*?store=true`. Treat the URL as a capability token.',
+            '',
+            'Status codes:',
+            '- `200` — bytes served with correct `Content-Type` and `Cache-Control: public, max-age=3600`',
+            '- `400` — invalid filename shape (e.g. path traversal attempt)',
+            '- `404` — unknown id or the file was swept by the TTL cleanup',
+            '- `410` — file exists but exceeded `FILES_TTL_SECONDS` since last write'
+          ].join('\n')
         }
       },
       async (req, reply) => {

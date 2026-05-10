@@ -15,7 +15,7 @@ import { buildRenderRoutes } from './routes/render/index.js';
 import { buildTemplateRoutes } from './routes/templates/index.js';
 import { buildFilesRoutes } from './routes/files/index.js';
 import { authPlugin } from './auth.js';
-import { shutdownPuppeteer, puppeteerStats } from './engines/puppeteer.js';
+import { shutdownPuppeteer, puppeteerStats, warmupPuppeteer } from './engines/puppeteer.js';
 import { warmupSatori } from './engines/satori.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -107,17 +107,71 @@ export async function buildApp(): Promise<FastifyInstance> {
       openapi: '3.1.0',
       info: {
         title: 'OpenTemplate API',
-        description:
-          'Image (PNG) and PDF generation from HTML+CSS+JSON templates. ' +
-          'Satori is the primary engine; Puppeteer is the auto-fallback and the only ' +
-          'choice for PDF. Pass `?store=true` on any /render endpoint to persist ' +
-          'the output and get back a URL.',
-        version: '0.1.0'
+        version: '0.1.0',
+        description: [
+          'Generate **PNG** and **PDF** from HTML+CSS+JSON templates.',
+          '',
+          '## Authentication',
+          'All `/render/*` and `/templates/*` endpoints require an API key, sent as either:',
+          '- `x-api-key: <key>` header, or',
+          '- `Authorization: Bearer <key>`',
+          '',
+          'Public endpoints (no key): `/health`, `/metrics`, `/editor/*`, `/files/*`, `/docs/*`.',
+          '',
+          '## Rendering engines',
+          '- `satori` — fast, low memory, **flexbox-only CSS subset**. Cannot fetch remote URLs (use the inliner).',
+          '- `puppeteer` — full Chromium, supports any CSS. Slower, higher memory. **Required for PDF.**',
+          '- `auto` (default) — Satori first; on failure (unsupported CSS, etc.) falls back to Puppeteer. ',
+          '  The `x-fallback-reason` response header reports the Satori error when fallback fires. ',
+          '  Timeouts do **not** trigger fallback.',
+          '',
+          '## Hyperlinks (`data._links`)',
+          'Configure clickable links by adding a reserved `_links` key to the request `data` object. ',
+          'Targets match by `data-otid` (preferred — assigned by the editor\'s design mode) or any CSS selector. ',
+          'Three accepted shapes:',
+          '```json',
+          '"data": { "_links": { "cta": "https://example.com" } }',
+          '"data": { "_links": { "cta": { "url": "https://example.com", "title": "Buy" } } }',
+          '"data": { "_links": [ { "otid": "cta", "url": "https://example.com", "title": "Buy" } ] }',
+          '```',
+          'Only `http(s)`, `mailto:`, `tel:`, and simple relative URLs allowed. `javascript:`/`data:`/`file:` rejected.',
+          '`_links` is stripped from `data` before Mustache interpolation — the rest of the keys substitute normally.',
+          '',
+          '## Storing outputs (`?store=true`)',
+          'Add `?store=true` to any `/render/*` endpoint to write the output to disk and receive a JSON ',
+          'response with a public URL instead of a binary body. URL lifetime: `FILES_TTL_SECONDS` (24h default).',
+          'Filenames carry 16-char nanoid (~95 bits entropy) — treat the URL as a capability token.',
+          '',
+          '## Per-request timeout',
+          'Send `timeoutMs` (1000–`RENDER_TIMEOUT_MAX_MS`, default cap 120000) in any render body to override ',
+          'the global `RENDER_TIMEOUT_MS` (default 30000). Server clamps silently — never blocks unbounded waits.',
+          '',
+          '## External asset inlining',
+          'Server can pre-fetch http(s) `<img src>` and CSS `url(...)` references and rewrite them as ',
+          '`data:` URIs before render. Required for Satori (it cannot fetch). Gated by ',
+          '`PUPPETEER_ALLOWED_HOSTS` allowlist + `PUPPETEER_ALLOW_PUBLIC` flag — strict-by-default. ',
+          'Response headers:',
+          '- `x-assets-inlined: N` — count successfully fetched',
+          '- `x-assets-skipped: N` — count blocked or failed',
+          '- `x-assets-skip-detail: <reason>:<url>|...` — per-URL reasons (`blocked_by_policy`, `bad_status`, `fetch_failed`, `too_large`, `budget_exceeded`, `over_max_assets`)',
+          '',
+          '## Response headers (binary render mode)',
+          '| Header | Meaning |',
+          '|---|---|',
+          '| `x-engine` | Engine that produced the output: `satori` or `puppeteer` |',
+          '| `x-assets-inlined` | Successful inline-asset fetches |',
+          '| `x-assets-skipped` | Skipped or failed fetches (see `x-assets-skip-detail`) |',
+          '| `x-fallback-reason` | URL-encoded Satori error when auto fell back to Puppeteer |',
+          '',
+          '## Stored templates',
+          '`POST /templates` saves an HTML+CSS+sampleData triple. `POST /render/{id}/{format}` renders it. ',
+          'When the body omits `data`, the template\'s `sampleData` is used. Send your own `data` to override.'
+        ].join('\n')
       },
       servers: [{ url: '/' }],
       tags: [
         { name: 'render', description: 'Render PNG / PDF / both from inline or stored templates' },
-        { name: 'templates', description: 'CRUD for stored HTML+CSS+sample data templates' },
+        { name: 'templates', description: 'CRUD for stored HTML+CSS+sampleData templates' },
         { name: 'files', description: 'Retrieve outputs persisted via ?store=true' },
         { name: 'system', description: 'Health and metrics' }
       ],
@@ -179,7 +233,15 @@ export async function buildApp(): Promise<FastifyInstance> {
   app.get('/', { schema: { hide: true } }, async (_req, reply) => reply.redirect('/editor/'));
   app.get(
     '/health',
-    { schema: { tags: ['system'], summary: 'Liveness + Puppeteer queue snapshot' } },
+    {
+      schema: {
+        tags: ['system'],
+        summary: 'Liveness + Puppeteer queue snapshot',
+        description:
+          'Public liveness endpoint. Returns `{ok: true, ts: ISO, puppeteer: {pagesServed, inFlight, pending}}`. ' +
+          'Use for load balancer + container healthchecks.'
+      }
+    },
     async () => ({
       ok: true,
       ts: new Date().toISOString(),
@@ -187,7 +249,20 @@ export async function buildApp(): Promise<FastifyInstance> {
     })
   );
   // Lightweight Prometheus-style text exposition. Public so Prom can scrape.
-  app.get('/metrics', { schema: { tags: ['system'], summary: 'Prometheus metrics' } }, async (_req, reply) => {
+  app.get(
+    '/metrics',
+    {
+      schema: {
+        tags: ['system'],
+        summary: 'Prometheus metrics',
+        description:
+          'Public Prometheus text exposition. Includes per-process RSS / heap and Puppeteer ' +
+          'queue counters: `opentemplate_puppeteer_pages_served_total`, ' +
+          '`opentemplate_puppeteer_in_flight`, `opentemplate_puppeteer_pending`. ' +
+          'Scrape interval ≥ 10s recommended.'
+      }
+    },
+    async (_req, reply) => {
     const stats = puppeteerStats();
     const mem = process.memoryUsage();
     const lines = [
@@ -300,6 +375,14 @@ async function main() {
 
   const app = await buildApp();
   await logStorageDiagnostics(app);
+
+  // Eagerly launch Chromium so the first render skips the cold-start cost
+  // (~2-5s). Fire-and-forget — failures are surfaced to the actual render
+  // request, not blocking server boot.
+  void warmupPuppeteer().then(
+    () => app.log.info('puppeteer:warm'),
+    (err) => app.log.warn({ err }, 'puppeteer:warmup_failed')
+  );
 
   let shuttingDown = false;
   const shutdown = async (signal: string) => {

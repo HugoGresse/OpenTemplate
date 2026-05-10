@@ -11,7 +11,11 @@ export const buildListTemplatesRoute =
         schema: {
           querystring: listQuerySchema,
           tags: ['templates'],
-          summary: 'List templates (paginated)'
+          summary: 'List templates (paginated)',
+          description:
+            'Returns `{items: Template[], nextCursor: string|null}`. Items sorted by `updatedAt` ' +
+            'descending. Pass `cursor` from the previous response to fetch the next page; `nextCursor: null` ' +
+            'means the last page.'
         }
       },
       async (req) => store.list({ limit: req.query.limit, cursor: req.query.cursor })

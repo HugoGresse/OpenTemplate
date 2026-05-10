@@ -7,7 +7,16 @@ export const buildCreateTemplateRoute =
   async (app) => {
     app.post<{ Body: CreateBody }>(
       '/templates',
-      { schema: { body: createSchema, tags: ['templates'], summary: 'Create a template' } },
+      {
+        schema: {
+          body: createSchema,
+          tags: ['templates'],
+          summary: 'Create a template',
+          description:
+            'Returns 201 with the created Template (server-assigned `id`, ISO timestamps). ' +
+            'IDs are 10-char nanoid (URL-safe). Render later via `POST /render/{id}/{format}`.'
+        }
+      },
       async (req, reply) => {
         const t = await store.create({
           name: req.body.name,

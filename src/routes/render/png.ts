@@ -6,6 +6,7 @@ import {
   attachAssetHeaders,
   buildSingleStoreResponse,
   checkPixelArea,
+  clampTimeout,
   renderBodySchema,
   shouldStore,
   storeQuerySchema,
@@ -23,7 +24,19 @@ export const buildPngRoute =
           body: renderBodySchema,
           querystring: storeQuerySchema,
           tags: ['render'],
-          summary: 'Render PNG from inline HTML/CSS'
+          summary: 'Render PNG from inline HTML/CSS',
+          description: [
+            'Returns `image/png` binary by default. With `?store=true` returns JSON ',
+            '`{id, url, format:"png", engineUsed, width, height, size, expiresAt, ...}` and ',
+            'persists the image at `/files/{id}.png`.',
+            '',
+            '**Engine fallback (auto mode):** Satori is tried first; on failure other than ',
+            'TimeoutError, Puppeteer is invoked. The `x-fallback-reason` header carries the ',
+            'Satori error so callers can debug unsupported CSS quickly.',
+            '',
+            '**Hyperlinks:** include `_links` in `data` (see top of doc). Anchors are not ',
+            'visible in PNG output but are kept for parity with PDF/bundle.'
+          ].join('\n')
         }
       },
       async (req, reply) => {
@@ -39,7 +52,8 @@ export const buildPngRoute =
           data: req.body.data,
           width,
           height,
-          engine: req.body.engine ?? 'auto'
+          engine: req.body.engine ?? 'auto',
+          timeoutMs: clampTimeout(req.body.timeoutMs)
         };
         try {
           const result = await renderPng(input);

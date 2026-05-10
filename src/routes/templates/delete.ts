@@ -6,7 +6,13 @@ export const buildDeleteTemplateRoute =
   async (app) => {
     app.delete<{ Params: { id: string } }>(
       '/templates/:id',
-      { schema: { tags: ['templates'], summary: 'Delete a template' } },
+      {
+        schema: {
+          tags: ['templates'],
+          summary: 'Delete a template',
+          description: 'Returns `{deleted: true}`. 404 if id unknown. Idempotent for already-deleted ids.'
+        }
+      },
       async (req, reply) => {
         const ok = await store.delete(req.params.id);
         if (!ok) return reply.code(404).send({ error: 'not_found' });

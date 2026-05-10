@@ -6,6 +6,7 @@ import type { FilesStore } from '../../storage/files.js';
 import {
   bundleResponse,
   checkPixelArea,
+  clampTimeout,
   shouldStore,
   storeQuerySchema,
   storedRenderBodySchema,
@@ -23,7 +24,12 @@ export const buildStoredBundleRoute =
           body: storedRenderBodySchema,
           querystring: storeQuerySchema,
           tags: ['render'],
-          summary: 'Render a stored template as PNG + PDF in one round-trip'
+          summary: 'Render a stored template as PNG + PDF',
+          description: [
+            'Parallel render of both formats for the stored template. Same body shape as ',
+            '`/render/{id}/png`. Response shape mirrors `/render/bundle` (binary base64 by default, ',
+            'paired URLs with `?store=true`).'
+          ].join('\n')
         }
       },
       async (req, reply) => {
@@ -41,7 +47,8 @@ export const buildStoredBundleRoute =
           data: req.body?.data ?? tpl.sampleData,
           width,
           height,
-          engine: tpl.engine ?? 'auto'
+          engine: tpl.engine ?? 'auto',
+          timeoutMs: clampTimeout(req.body?.timeoutMs)
         };
         try {
           const [png, pdf] = await Promise.all([renderPng(input), renderPdf(input)]);

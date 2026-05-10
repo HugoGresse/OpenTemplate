@@ -5,6 +5,7 @@ import type { FilesStore } from '../../storage/files.js';
 import {
   bundleResponse,
   checkPixelArea,
+  clampTimeout,
   renderBodySchema,
   shouldStore,
   storeQuerySchema,
@@ -22,7 +23,15 @@ export const buildBundleRoute =
           body: renderBodySchema,
           querystring: storeQuerySchema,
           tags: ['render'],
-          summary: 'Render PNG + PDF in a single round-trip'
+          summary: 'Render PNG + PDF in a single round-trip',
+          description: [
+            'Renders both formats in parallel. Wall-clock time = max(PNG, PDF), not sum.',
+            '',
+            'Default response: JSON `{png: <base64>, pdf: <base64>, engineUsed: {png, pdf}, ...}`.',
+            'With `?store=true`: JSON `{png: {id, url, size}, pdf: {id, url, size}, engineUsed, expiresAt, ...}`.',
+            '',
+            'Counts as **one** request against the rate-limit bucket — efficient when callers need both.'
+          ].join('\n')
         }
       },
       async (req, reply) => {
@@ -38,7 +47,8 @@ export const buildBundleRoute =
           data: req.body.data,
           width,
           height,
-          engine: req.body.engine ?? 'auto'
+          engine: req.body.engine ?? 'auto',
+          timeoutMs: clampTimeout(req.body.timeoutMs)
         };
         try {
           const [png, pdf] = await Promise.all([renderPng(input), renderPdf(input)]);

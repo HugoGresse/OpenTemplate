@@ -57,6 +57,19 @@ export interface PuppeteerRenderOptions {
   css?: string;
   width: number;
   height: number;
+  /** Override the global RENDER_TIMEOUT_MS for this single render. */
+  timeoutMs?: number;
+}
+
+export async function warmupPuppeteer(): Promise<void> {
+  // Eagerly launch Chromium at boot so the first user request doesn't pay
+  // the ~2-5s cold start. Failures swallowed — first render will retry and
+  // surface the error to the caller.
+  try {
+    await getBrowser();
+  } catch {
+    /* ignore */
+  }
 }
 
 function buildDocument(opts: PuppeteerRenderOptions): string {
@@ -72,9 +85,9 @@ function buildDocument(opts: PuppeteerRenderOptions): string {
 <body>${opts.html}</body></html>`;
 }
 
-async function configurePage(page: Page): Promise<void> {
-  page.setDefaultTimeout(config.renderTimeoutMs);
-  page.setDefaultNavigationTimeout(config.renderTimeoutMs);
+async function configurePage(page: Page, timeoutMs: number): Promise<void> {
+  page.setDefaultTimeout(timeoutMs);
+  page.setDefaultNavigationTimeout(timeoutMs);
 
   await page.setJavaScriptEnabled(config.puppeteer.allowJs);
   await page.setRequestInterception(true);
@@ -98,14 +111,14 @@ async function configurePage(page: Page): Promise<void> {
   });
 }
 
-async function withPage<T>(fn: (page: Page) => Promise<T>): Promise<T> {
+async function withPage<T>(timeoutMs: number, fn: (page: Page) => Promise<T>): Promise<T> {
   await recycleIfNeeded();
   return semaphore.run(async () => {
     const browser = await getBrowser();
     const page = await browser.newPage();
     pagesServed++;
     try {
-      await configurePage(page);
+      await configurePage(page, timeoutMs);
       return await fn(page);
     } finally {
       try {
@@ -118,8 +131,9 @@ async function withPage<T>(fn: (page: Page) => Promise<T>): Promise<T> {
 }
 
 export async function renderPuppeteerPng(opts: PuppeteerRenderOptions): Promise<Buffer> {
+  const timeoutMs = opts.timeoutMs ?? config.renderTimeoutMs;
   return withTimeout(
-    withPage(async (page) => {
+    withPage(timeoutMs, async (page) => {
       await page.setViewport({
         width: opts.width,
         height: opts.height,
@@ -127,19 +141,20 @@ export async function renderPuppeteerPng(opts: PuppeteerRenderOptions): Promise<
       });
       await page.setContent(buildDocument(opts), {
         waitUntil: 'load',
-        timeout: config.renderTimeoutMs
+        timeout: timeoutMs
       });
       const buf = await page.screenshot({ type: 'png', fullPage: false, captureBeyondViewport: false });
       return Buffer.from(buf);
     }),
-    config.renderTimeoutMs,
+    timeoutMs,
     'puppeteer_png'
   );
 }
 
 export async function renderPuppeteerPdf(opts: PuppeteerRenderOptions): Promise<Buffer> {
+  const timeoutMs = opts.timeoutMs ?? config.renderTimeoutMs;
   return withTimeout(
-    withPage(async (page) => {
+    withPage(timeoutMs, async (page) => {
       await page.setViewport({
         width: opts.width,
         height: opts.height,
@@ -147,7 +162,7 @@ export async function renderPuppeteerPdf(opts: PuppeteerRenderOptions): Promise<
       });
       await page.setContent(buildDocument(opts), {
         waitUntil: 'load',
-        timeout: config.renderTimeoutMs
+        timeout: timeoutMs
       });
       const buf = await page.pdf({
         width: `${opts.width}px`,
@@ -159,7 +174,7 @@ export async function renderPuppeteerPdf(opts: PuppeteerRenderOptions): Promise<
       });
       return Buffer.from(buf);
     }),
-    config.renderTimeoutMs,
+    timeoutMs,
     'puppeteer_pdf'
   );
 }

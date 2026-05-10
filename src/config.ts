@@ -37,7 +37,8 @@ const EnvSchema = z.object({
 
   BODY_LIMIT_BYTES: z.coerce.number().int().min(1024).default(1_048_576),
 
-  RENDER_TIMEOUT_MS: z.coerce.number().int().min(500).default(15_000),
+  RENDER_TIMEOUT_MS: z.coerce.number().int().min(500).default(30_000),
+  RENDER_TIMEOUT_MAX_MS: z.coerce.number().int().min(1_000).default(120_000),
   PUPPETEER_CONCURRENCY: z.coerce.number().int().min(1).default(4),
   PUPPETEER_SANDBOX: z
     .union([z.literal('true'), z.literal('false')])
@@ -110,6 +111,7 @@ export const config = {
   bodyLimitBytes: env.BODY_LIMIT_BYTES,
 
   renderTimeoutMs: env.RENDER_TIMEOUT_MS,
+  renderTimeoutMaxMs: env.RENDER_TIMEOUT_MAX_MS,
 
   puppeteer: {
     concurrency: env.PUPPETEER_CONCURRENCY,
