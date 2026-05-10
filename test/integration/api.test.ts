@@ -274,11 +274,14 @@ describe('render endpoints', () => {
     expect(res.statusCode).toBe(200);
     expect(res.headers['content-type']).toMatch(/application\/json/);
     const body = res.json();
-    expect(typeof body.png).toBe('string');
-    expect(typeof body.pdf).toBe('string');
+    // New shape: each format gets its own object holding {data}; legacy
+    // top-level `png`/`pdf` strings are gone.
+    expect(typeof body.png).toBe('object');
+    expect(typeof body.png.data).toBe('string');
+    expect(typeof body.pdf.data).toBe('string');
     expect(body.engineUsed).toEqual({ png: 'satori', pdf: 'puppeteer' });
-    expect(Buffer.from(body.png, 'base64').toString()).toContain('FAKE-SATORI-PNG');
-    expect(Buffer.from(body.pdf, 'base64').toString()).toContain('FAKE');
+    expect(Buffer.from(body.png.data, 'base64').toString()).toContain('FAKE-SATORI-PNG');
+    expect(Buffer.from(body.pdf.data, 'base64').toString()).toContain('FAKE');
   });
 
   it('renders bundle for stored template', async () => {
@@ -297,14 +300,90 @@ describe('render endpoints', () => {
     });
     expect(res.statusCode).toBe(200);
     const body = res.json();
-    expect(body.png).toBeTruthy();
-    expect(body.pdf).toBeTruthy();
+    expect(body.png?.data).toBeTruthy();
+    expect(body.pdf?.data).toBeTruthy();
   });
 
-  it('?store=true returns JSON with url instead of binary (PNG)', async () => {
+  it('?output=png+pdf on /render/png returns multi-format JSON', async () => {
     const res = await app.inject({
       method: 'POST',
-      url: '/render/png?store=true',
+      url: '/render/png?output=png+pdf',
+      headers: { 'x-api-key': KEY, 'content-type': 'application/json' },
+      payload: { html: '<div/>', engine: 'satori', width: 100, height: 100 }
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['content-type']).toMatch(/application\/json/);
+    const body = res.json();
+    expect(body.png.data).toBeTruthy();
+    expect(body.pdf.data).toBeTruthy();
+    expect(body.engineUsed).toEqual({ png: 'satori', pdf: 'puppeteer' });
+  });
+
+  it('?output=pdf on /render/png renders PDF only (binary)', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/render/png?output=pdf',
+      headers: { 'x-api-key': KEY, 'content-type': 'application/json' },
+      payload: { html: '<div/>', engine: 'satori', width: 100, height: 100 }
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['content-type']).toMatch(/application\/pdf/);
+    expect(res.headers['x-engine']).toBe('puppeteer');
+  });
+
+  it('?store=data returns JSON base64 (no file written)', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/render/png?store=data',
+      headers: { 'x-api-key': KEY, 'content-type': 'application/json' },
+      payload: { html: '<div/>', engine: 'satori', width: 100, height: 100 }
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['content-type']).toMatch(/application\/json/);
+    const body = res.json();
+    expect(body.format).toBe('png');
+    expect(typeof body.data).toBe('string');
+    expect(body.url).toBeUndefined();
+    expect(body.id).toBeUndefined();
+    expect(Buffer.from(body.data, 'base64').toString()).toContain('FAKE-SATORI-PNG');
+  });
+
+  it('?store=url+data returns BOTH url and base64 data', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/render/png?store=url+data',
+      headers: { 'x-api-key': KEY, 'content-type': 'application/json' },
+      payload: { html: '<div/>', engine: 'satori', width: 100, height: 100 }
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.id).toBeTruthy();
+    expect(body.url).toBe(`/files/${body.id}.png`);
+    expect(typeof body.data).toBe('string');
+    expect(typeof body.size).toBe('number');
+    expect(body.expiresAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+  });
+
+  it('?store=url+data on bundle returns url and data per format', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/render/bundle?store=url+data',
+      headers: { 'x-api-key': KEY, 'content-type': 'application/json' },
+      payload: { html: '<div/>', engine: 'satori', width: 100, height: 100 }
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.png.id).toBeTruthy();
+    expect(body.png.url).toMatch(/^\/files\/.+\.png$/);
+    expect(typeof body.png.data).toBe('string');
+    expect(body.pdf.url).toMatch(/^\/files\/.+\.pdf$/);
+    expect(typeof body.pdf.data).toBe('string');
+  });
+
+  it('?store=url returns JSON with url instead of binary (PNG)', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/render/png?store=url',
       headers: { 'x-api-key': KEY, 'content-type': 'application/json' },
       payload: { html: '<div/>', engine: 'satori', width: 100, height: 100 }
     });
@@ -321,10 +400,10 @@ describe('render endpoints', () => {
     expect(body.expiresAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
   });
 
-  it('?store=true returns JSON for PDF too', async () => {
+  it('?store=url returns JSON for PDF too', async () => {
     const res = await app.inject({
       method: 'POST',
-      url: '/render/pdf?store=true',
+      url: '/render/pdf?store=url',
       headers: { 'x-api-key': KEY, 'content-type': 'application/json' },
       payload: { html: '<div/>', width: 100, height: 100 }
     });
@@ -334,10 +413,10 @@ describe('render endpoints', () => {
     expect(body.url).toBe(`/files/${body.id}.pdf`);
   });
 
-  it('?store=true on bundle returns paired URLs', async () => {
+  it('?store=url on bundle returns paired URLs', async () => {
     const res = await app.inject({
       method: 'POST',
-      url: '/render/bundle?store=true',
+      url: '/render/bundle?store=url',
       headers: { 'x-api-key': KEY, 'content-type': 'application/json' },
       payload: { html: '<div/>', engine: 'satori', width: 100, height: 100 }
     });
@@ -349,10 +428,10 @@ describe('render endpoints', () => {
     expect(body.engineUsed).toEqual({ png: 'satori', pdf: 'puppeteer' });
   });
 
-  it('?store=false (or absent) keeps binary response', async () => {
+  it('omitting ?store keeps binary response', async () => {
     const res = await app.inject({
       method: 'POST',
-      url: '/render/png?store=false',
+      url: '/render/png',
       headers: { 'x-api-key': KEY, 'content-type': 'application/json' },
       payload: { html: '<div/>', engine: 'satori', width: 100, height: 100 }
     });
@@ -363,7 +442,7 @@ describe('render endpoints', () => {
   it('GET /files/:filename serves the stored bytes (public, no API key)', async () => {
     const create = await app.inject({
       method: 'POST',
-      url: '/render/png?store=true',
+      url: '/render/png?store=url',
       headers: { 'x-api-key': KEY, 'content-type': 'application/json' },
       payload: { html: '<div/>', engine: 'satori', width: 100, height: 100 }
     });

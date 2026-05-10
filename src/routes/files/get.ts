@@ -13,7 +13,7 @@ export const buildGetFileRoute =
           summary: 'Fetch a stored render output (PNG or PDF) by filename',
           description: [
             '**Public** — no API key required. Filenames are 16-char nanoid + `.png|.pdf`, ',
-            'returned by `/render/*?store=true`. Treat the URL as a capability token.',
+            'returned by `/render/*?store=url`. Treat the URL as a capability token.',
             '',
             'Status codes:',
             '- `200` — bytes served with correct `Content-Type` and `Cache-Control: public, max-age=3600`',

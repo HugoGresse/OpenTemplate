@@ -1,39 +1,38 @@
 import type { FastifyPluginAsync } from 'fastify';
-import { renderPng } from '../../engines/render.js';
 import { config } from '../../config.js';
 import type { TemplateStore } from '../../storage/fs.js';
 import type { FilesStore } from '../../storage/files.js';
 import {
-  attachAssetHeaders,
-  buildSingleStoreResponse,
   checkPixelArea,
   clampTimeout,
-  shouldStore,
-  storeQuerySchema,
+  dispatchRender,
+  parseOutput,
+  parseStore,
+  renderQuerySchema,
+  sendRender,
   storedRenderBodySchema,
-  type StoreQuery,
+  type RenderQuery,
   type StoredBody
 } from './_shared.js';
 
 export const buildStoredPngRoute =
   (templates: TemplateStore, files: FilesStore): FastifyPluginAsync =>
   async (app) => {
-    app.post<{ Params: { id: string }; Body: StoredBody; Querystring: StoreQuery }>(
+    app.post<{ Params: { id: string }; Body: StoredBody; Querystring: RenderQuery }>(
       '/render/:id/png',
       {
         schema: {
           body: storedRenderBodySchema,
-          querystring: storeQuerySchema,
+          querystring: renderQuerySchema,
           tags: ['render'],
           summary: 'Render a stored template as PNG',
           description: [
-            'Renders the template identified by `:id` (created via `POST /templates`). ',
-            'Engine + dimensions come from the template; only `data` and `timeoutMs` may be sent in the body.',
+            'Renders the template identified by `:id`. Engine + dimensions come from the stored ',
+            'template; only `data` and `timeoutMs` may be sent in the body.',
             '',
-            '**Data resolution:** body `data` overrides; if omitted, the template\'s `sampleData` is used. ',
-            'Send `data: {_links: {...}}` to attach links per-call without modifying the stored template.',
+            '**Data resolution:** body `data` overrides; if omitted, the template\'s `sampleData` is used.',
             '',
-            '`?store=true` behaves the same as the inline endpoint — JSON URL response instead of binary.'
+            'Same `?output=` and `?store=` semantics as `/render/png`.'
           ].join('\n')
         }
       },
@@ -46,22 +45,26 @@ export const buildStoredPngRoute =
         if (areaErr) {
           return reply.code(400).send({ error: 'invalid_dimensions', message: areaErr });
         }
+        const output = parseOutput(req.query.output, { png: true, pdf: false });
+        const store = parseStore(req.query.store);
         try {
-          const result = await renderPng({
-            html: tpl.html,
-            css: tpl.css,
-            data: req.body?.data ?? tpl.sampleData,
+          const result = await dispatchRender({
+            input: {
+              html: tpl.html,
+              css: tpl.css,
+              data: req.body?.data ?? tpl.sampleData,
+              width,
+              height,
+              engine: tpl.engine ?? 'auto',
+              timeoutMs: clampTimeout(req.body?.timeoutMs)
+            },
+            output,
+            store,
+            files,
             width,
-            height,
-            engine: tpl.engine ?? 'auto',
-            timeoutMs: clampTimeout(req.body?.timeoutMs)
+            height
           });
-          if (shouldStore(req.query)) {
-            return buildSingleStoreResponse(files, result, 'png', width, height);
-          }
-          reply.header('content-type', 'image/png');
-          attachAssetHeaders(reply, result);
-          return reply.send(result.buffer);
+          return sendRender(reply, result);
         } catch (err) {
           req.log.error({ err, templateId: req.params.id }, 'render_stored_png_failed');
           return reply.code(500).send({

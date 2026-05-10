@@ -1,35 +1,35 @@
 import type { FastifyPluginAsync } from 'fastify';
-import { renderPdf } from '../../engines/render.js';
 import { config } from '../../config.js';
 import type { TemplateStore } from '../../storage/fs.js';
 import type { FilesStore } from '../../storage/files.js';
 import {
-  attachAssetHeaders,
-  buildSingleStoreResponse,
   checkPixelArea,
   clampTimeout,
-  shouldStore,
-  storeQuerySchema,
+  dispatchRender,
+  parseOutput,
+  parseStore,
+  renderQuerySchema,
+  sendRender,
   storedRenderBodySchema,
-  type StoreQuery,
+  type RenderQuery,
   type StoredBody
 } from './_shared.js';
 
 export const buildStoredPdfRoute =
   (templates: TemplateStore, files: FilesStore): FastifyPluginAsync =>
   async (app) => {
-    app.post<{ Params: { id: string }; Body: StoredBody; Querystring: StoreQuery }>(
+    app.post<{ Params: { id: string }; Body: StoredBody; Querystring: RenderQuery }>(
       '/render/:id/pdf',
       {
         schema: {
           body: storedRenderBodySchema,
-          querystring: storeQuerySchema,
+          querystring: renderQuerySchema,
           tags: ['render'],
           summary: 'Render a stored template as PDF',
-          description: [
-            'Same data-resolution rules as `/render/{id}/png`. Always uses Puppeteer. ',
-            '`data._links` produces clickable annotations.'
-          ].join('\n')
+          description:
+            'Same data-resolution rules as `/render/{id}/png`. PDF always uses Puppeteer. ' +
+            '`data._links` produces clickable annotations. ' +
+            'Same `?output=` and `?store=` semantics as `/render/pdf`.'
         }
       },
       async (req, reply) => {
@@ -41,21 +41,26 @@ export const buildStoredPdfRoute =
         if (areaErr) {
           return reply.code(400).send({ error: 'invalid_dimensions', message: areaErr });
         }
+        const output = parseOutput(req.query.output, { png: false, pdf: true });
+        const store = parseStore(req.query.store);
         try {
-          const result = await renderPdf({
-            html: tpl.html,
-            css: tpl.css,
-            data: req.body?.data ?? tpl.sampleData,
+          const result = await dispatchRender({
+            input: {
+              html: tpl.html,
+              css: tpl.css,
+              data: req.body?.data ?? tpl.sampleData,
+              width,
+              height,
+              engine: tpl.engine ?? 'auto',
+              timeoutMs: clampTimeout(req.body?.timeoutMs)
+            },
+            output,
+            store,
+            files,
             width,
-            height,
-            timeoutMs: clampTimeout(req.body?.timeoutMs)
+            height
           });
-          if (shouldStore(req.query)) {
-            return buildSingleStoreResponse(files, result, 'pdf', width, height);
-          }
-          reply.header('content-type', 'application/pdf');
-          attachAssetHeaders(reply, result);
-          return reply.send(result.buffer);
+          return sendRender(reply, result);
         } catch (err) {
           req.log.error({ err, templateId: req.params.id }, 'render_stored_pdf_failed');
           return reply.code(500).send({

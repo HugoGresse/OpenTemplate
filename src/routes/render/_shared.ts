@@ -1,15 +1,9 @@
 import type { FastifyReply } from 'fastify';
 import { config } from '../../config.js';
-import type { RenderResult } from '../../engines/render.js';
+import { renderPdf, renderPng, type RenderInput, type RenderResult } from '../../engines/render.js';
 import type { FilesStore } from '../../storage/files.js';
 
 // ---------- schemas (shared by every render route) ----------
-//
-// Hyperlinks are configured via the JSON `data._links` key, NOT a top-level
-// `links` field. Caller payload:
-//   "data": { "_links": { "el3": "https://example.com" } }
-// or full form:
-//   "data": { "_links": { "el3": { "url": "...", "title": "..." } } }
 
 export const renderBodySchema = {
   type: 'object',
@@ -112,7 +106,7 @@ export const storedRenderBodySchema = {
       type: 'object',
       additionalProperties: true,
       description:
-        'Per-request data. When omitted, the template\'s `sampleData` is used as fallback. ' +
+        "Per-request data. When omitted, the template's `sampleData` is used as fallback. " +
         'Reserved `_links` key applies the same way as on inline render.'
     },
     timeoutMs: {
@@ -137,16 +131,34 @@ export const storedRenderBodySchema = {
   ]
 } as const;
 
-export const storeQuerySchema = {
+/**
+ * Query schema accepted by every render endpoint.
+ *
+ * - `output` — comma-or-`+`-joined formats. Tokens: `png`, `pdf`. If omitted,
+ *   the endpoint path's default applies (/render/png → png, /render/pdf →
+ *   pdf, /render/bundle → png+pdf).
+ * - `store` — comma-or-`+`-joined response modes. Tokens: `url`, `data`.
+ *   When `url`, server writes a file and returns `{id, url, size, expiresAt}`.
+ *   When `data`, returns `{data: <base64>}`. When both, returns both.
+ *   Backward-compat: `true`/`1` ≡ `url`; `false`/`0` ≡ unset (legacy binary
+ *   for single format, legacy base64 bundle for multi-format).
+ */
+export const renderQuerySchema = {
   type: 'object',
   properties: {
+    output: {
+      type: 'string',
+      pattern: '^(png|pdf)([+\\s,]+(png|pdf))?$',
+      description:
+        "Comma-or-`+`-joined output formats. e.g. `png`, `pdf`, `png+pdf`. " +
+        "Omit to use the endpoint's default."
+    },
     store: {
       type: 'string',
-      enum: ['true', 'false', '1', '0'],
+      pattern: '^(url|data)([+\\s,]+(url|data))*$',
       description:
-        'When `true` or `1`, server writes the rendered output to /data/files and the response is a ' +
-        'JSON object `{id, url, format, engineUsed, width, height, size, expiresAt, …}` — NOT the ' +
-        'binary. URL is public for `FILES_TTL_SECONDS` (default 24h).'
+        'Response mode. Tokens: `url`, `data`. Combine with `+`, `,`, or space. ' +
+        'Examples: `url`, `data`, `url+data`. Omit for default behavior (binary single, base64 bundle multi).'
     }
   },
   additionalProperties: false
@@ -169,22 +181,58 @@ export interface StoredBody {
   timeoutMs?: number;
 }
 
+export interface RenderQuery {
+  output?: string;
+  store?: string;
+}
+
 /** Clamp a caller-supplied timeoutMs to [1_000, RENDER_TIMEOUT_MAX_MS]. */
 export function clampTimeout(v: number | undefined): number | undefined {
   if (v === undefined) return undefined;
   return Math.max(1_000, Math.min(v, config.renderTimeoutMaxMs));
 }
 
-export interface StoreQuery {
-  store?: string;
+// ---------- query parsing ----------
+
+export interface OutputFormats {
+  png: boolean;
+  pdf: boolean;
+}
+
+export interface StoreModes {
+  url: boolean;
+  data: boolean;
+}
+
+const TOKEN_SPLIT = /[+\s,]+/;
+
+export function parseOutput(raw: string | undefined, defaultFormats: OutputFormats): OutputFormats {
+  if (!raw) return defaultFormats;
+  const tokens = raw
+    .toLowerCase()
+    .split(TOKEN_SPLIT)
+    .map((t) => t.trim())
+    .filter(Boolean);
+  return {
+    png: tokens.includes('png'),
+    pdf: tokens.includes('pdf')
+  };
+}
+
+export function parseStore(raw: string | undefined): StoreModes {
+  if (!raw) return { url: false, data: false };
+  const tokens = raw
+    .toLowerCase()
+    .split(TOKEN_SPLIT)
+    .map((t) => t.trim())
+    .filter(Boolean);
+  return {
+    url: tokens.includes('url'),
+    data: tokens.includes('data')
+  };
 }
 
 // ---------- helpers ----------
-
-export function shouldStore(query: StoreQuery | undefined): boolean {
-  const v = query?.store;
-  return v === 'true' || v === '1';
-}
 
 export function checkPixelArea(width: number, height: number): string | null {
   if (width * height > config.maxPixelArea) {
@@ -212,78 +260,140 @@ export function attachAssetHeaders(reply: FastifyReply, result: RenderResult): v
   }
 }
 
-// ---------- store-mode response builders ----------
+// ---------- main dispatcher ----------
 
-export interface SingleStoreResponse {
-  id: string;
-  url: string;
-  format: 'png' | 'pdf';
-  engineUsed: 'satori' | 'puppeteer';
+interface DispatchOptions {
+  input: RenderInput;
+  output: OutputFormats;
+  store: StoreModes;
+  files: FilesStore;
   width: number;
   height: number;
-  size: number;
-  expiresAt: string;
-  assetsInlined: number;
-  assetsSkipped: number;
-  fallbackReason: string | null;
 }
 
-export async function buildSingleStoreResponse(
-  files: FilesStore,
-  result: RenderResult,
-  ext: 'png' | 'pdf',
-  width: number,
-  height: number
-): Promise<SingleStoreResponse> {
-  const stored = await files.save(result.buffer, ext, config.filesTtlSeconds);
-  return {
-    id: stored.id,
-    url: stored.url,
-    format: ext,
-    engineUsed: result.engineUsed,
-    width,
-    height,
-    size: stored.size,
-    expiresAt: stored.expiresAt.toISOString(),
-    assetsInlined: result.assetsInlined,
-    assetsSkipped: result.assetsSkipped,
-    fallbackReason: result.fallbackReason ?? null
-  };
+interface FormatMeta {
+  ext: 'png' | 'pdf';
+  result: RenderResult;
 }
 
-export async function bundleResponse(
-  files: FilesStore,
-  png: RenderResult,
-  pdf: RenderResult,
-  width: number,
-  height: number,
-  store: boolean
-) {
-  if (store) {
-    const [pngFile, pdfFile] = await Promise.all([
-      files.save(png.buffer, 'png', config.filesTtlSeconds),
-      files.save(pdf.buffer, 'pdf', config.filesTtlSeconds)
-    ]);
+/**
+ * Run all requested render formats in parallel, then assemble the response
+ * shape based on `store` modes. Returns either:
+ * - { binary: Buffer, contentType, headerMeta } for single-format with no store
+ *   (legacy binary path), or
+ * - { json } for everything else.
+ */
+export async function dispatchRender(
+  opts: DispatchOptions
+): Promise<
+  | {
+      binary: Buffer;
+      contentType: string;
+      headerResult: RenderResult;
+    }
+  | { json: Record<string, unknown> }
+> {
+  const tasks: Array<Promise<FormatMeta>> = [];
+  if (opts.output.png) {
+    tasks.push(renderPng(opts.input).then((result) => ({ ext: 'png' as const, result })));
+  }
+  if (opts.output.pdf) {
+    tasks.push(renderPdf(opts.input).then((result) => ({ ext: 'pdf' as const, result })));
+  }
+  if (tasks.length === 0) {
+    throw new Error('no_output_format_requested');
+  }
+
+  const results = await Promise.all(tasks);
+  const single = results.length === 1;
+  const wantUrl = opts.store.url;
+  const wantData = opts.store.data;
+  const noStore = !wantUrl && !wantData;
+
+  // ---- single-format, no store → binary
+  if (single && noStore) {
+    const f = results[0]!;
     return {
-      png: { id: pngFile.id, url: pngFile.url, size: pngFile.size },
-      pdf: { id: pdfFile.id, url: pdfFile.url, size: pdfFile.size },
-      engineUsed: { png: png.engineUsed, pdf: pdf.engineUsed },
-      fallbackReason: png.fallbackReason ?? null,
-      assetsInlined: png.assetsInlined,
-      assetsSkipped: png.assetsSkipped,
-      expiresAt: pngFile.expiresAt.toISOString(),
-      width,
-      height
+      binary: f.result.buffer,
+      contentType: f.ext === 'pdf' ? 'application/pdf' : 'image/png',
+      headerResult: f.result
     };
   }
-  return {
-    png: png.buffer.toString('base64'),
-    pdf: pdf.buffer.toString('base64'),
-    engineUsed: { png: png.engineUsed, pdf: pdf.engineUsed },
-    fallbackReason: png.fallbackReason ?? null,
-    assetsInlined: png.assetsInlined,
-    assetsSkipped: png.assetsSkipped,
-    width,
-    height
+
+  // ---- JSON response
+  // For multi-format with no store, default to base64 data (legacy bundle shape)
+  const includeData = wantData || (!single && noStore);
+  const includeUrl = wantUrl;
+
+  // Save files in parallel where requested
+  const saved = await Promise.all(
+    results.map(async (f) => {
+      if (!includeUrl) return null;
+      return opts.files.save(f.result.buffer, f.ext, config.filesTtlSeconds);
+    })
+  );
+
+  // Common per-request meta — picked from the first format (asset stats are
+  // the same across formats; they're computed once during prepare()).
+  const first = results[0]!.result;
+  const meta: Record<string, unknown> = {
+    engineUsed: single
+      ? results[0]!.result.engineUsed
+      : Object.fromEntries(results.map((f) => [f.ext, f.result.engineUsed])),
+    width: opts.width,
+    height: opts.height,
+    assetsInlined: first.assetsInlined,
+    assetsSkipped: first.assetsSkipped
   };
+  if (first.fallbackReason) meta.fallbackReason = first.fallbackReason;
+
+  if (single) {
+    const f = results[0]!;
+    const body: Record<string, unknown> = { format: f.ext, ...meta };
+    const s = saved[0];
+    if (s) {
+      body.id = s.id;
+      body.url = s.url;
+      body.size = s.size;
+      body.expiresAt = s.expiresAt.toISOString();
+    }
+    if (includeData) {
+      body.data = f.result.buffer.toString('base64');
+    }
+    return { json: body };
+  }
+
+  // multi-format
+  const formatsBlock: Record<string, Record<string, unknown>> = {};
+  for (let i = 0; i < results.length; i++) {
+    const f = results[i]!;
+    const node: Record<string, unknown> = {};
+    const s = saved[i];
+    if (s) {
+      node.id = s.id;
+      node.url = s.url;
+      node.size = s.size;
+    }
+    if (includeData) node.data = f.result.buffer.toString('base64');
+    formatsBlock[f.ext] = node;
+  }
+  // Single shared expiresAt — all files in this request expire together.
+  if (includeUrl && saved[0]) {
+    meta.expiresAt = saved[0].expiresAt.toISOString();
+  }
+  return { json: { ...formatsBlock, ...meta } };
+}
+
+// ---------- route helper to send the dispatch result ----------
+
+export async function sendRender(
+  reply: FastifyReply,
+  dispatch: Awaited<ReturnType<typeof dispatchRender>>
+): Promise<unknown> {
+  if ('binary' in dispatch) {
+    reply.header('content-type', dispatch.contentType);
+    attachAssetHeaders(reply, dispatch.headerResult);
+    return reply.send(dispatch.binary);
+  }
+  return dispatch.json;
 }

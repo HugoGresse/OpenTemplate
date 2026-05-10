@@ -1,39 +1,34 @@
 import type { FastifyPluginAsync } from 'fastify';
-import { renderPdf, type RenderInput } from '../../engines/render.js';
 import { config } from '../../config.js';
 import type { FilesStore } from '../../storage/files.js';
 import {
-  attachAssetHeaders,
-  buildSingleStoreResponse,
   checkPixelArea,
   clampTimeout,
+  dispatchRender,
+  parseOutput,
+  parseStore,
   renderBodySchema,
-  shouldStore,
-  storeQuerySchema,
+  renderQuerySchema,
+  sendRender,
   type AdHocBody,
-  type StoreQuery
+  type RenderQuery
 } from './_shared.js';
 
 export const buildPdfRoute =
   (files: FilesStore): FastifyPluginAsync =>
   async (app) => {
-    app.post<{ Body: AdHocBody; Querystring: StoreQuery }>(
+    app.post<{ Body: AdHocBody; Querystring: RenderQuery }>(
       '/render/pdf',
       {
         schema: {
           body: renderBodySchema,
-          querystring: storeQuerySchema,
+          querystring: renderQuerySchema,
           tags: ['render'],
           summary: 'Render PDF from inline HTML/CSS',
           description: [
-            'Always uses Puppeteer — Satori produces SVG only. Output is a single page sized to ',
-            '`{width, height}`. Returns `application/pdf` binary by default; `?store=true` returns JSON ',
-            'with a `/files/{id}.pdf` URL.',
-            '',
-            '**Hyperlinks** in `data._links` produce clickable PDF link annotations on matching ',
-            'elements (`data-otid` or selector).',
-            '',
-            'The `engine` field on the body is ignored — PDF is always Puppeteer.'
+            'Default output: PDF (binary `application/pdf`). Same `?output=` and `?store=` semantics ',
+            'as `/render/png`. PDF rendering always uses Puppeteer; the body `engine` field is honored ',
+            'only for the PNG side when `?output=png+pdf`.'
           ].join('\n')
         }
       },
@@ -44,22 +39,26 @@ export const buildPdfRoute =
         if (areaErr) {
           return reply.code(400).send({ error: 'invalid_dimensions', message: areaErr });
         }
-        const input: RenderInput = {
-          html: req.body.html,
-          css: req.body.css,
-          data: req.body.data,
-          width,
-          height,
-          timeoutMs: clampTimeout(req.body.timeoutMs)
-        };
+        const output = parseOutput(req.query.output, { png: false, pdf: true });
+        const store = parseStore(req.query.store);
         try {
-          const result = await renderPdf(input);
-          if (shouldStore(req.query)) {
-            return buildSingleStoreResponse(files, result, 'pdf', width, height);
-          }
-          reply.header('content-type', 'application/pdf');
-          attachAssetHeaders(reply, result);
-          return reply.send(result.buffer);
+          const result = await dispatchRender({
+            input: {
+              html: req.body.html,
+              css: req.body.css,
+              data: req.body.data,
+              width,
+              height,
+              engine: req.body.engine ?? 'auto',
+              timeoutMs: clampTimeout(req.body.timeoutMs)
+            },
+            output,
+            store,
+            files,
+            width,
+            height
+          });
+          return sendRender(reply, result);
         } catch (err) {
           req.log.error({ err }, 'render_pdf_failed');
           return reply.code(500).send({

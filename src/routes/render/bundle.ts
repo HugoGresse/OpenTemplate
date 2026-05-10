@@ -1,36 +1,42 @@
 import type { FastifyPluginAsync } from 'fastify';
-import { renderPdf, renderPng, type RenderInput } from '../../engines/render.js';
 import { config } from '../../config.js';
 import type { FilesStore } from '../../storage/files.js';
 import {
-  bundleResponse,
   checkPixelArea,
   clampTimeout,
+  dispatchRender,
+  parseOutput,
+  parseStore,
   renderBodySchema,
-  shouldStore,
-  storeQuerySchema,
+  renderQuerySchema,
+  sendRender,
   type AdHocBody,
-  type StoreQuery
+  type RenderQuery
 } from './_shared.js';
 
 export const buildBundleRoute =
   (files: FilesStore): FastifyPluginAsync =>
   async (app) => {
-    app.post<{ Body: AdHocBody; Querystring: StoreQuery }>(
+    app.post<{ Body: AdHocBody; Querystring: RenderQuery }>(
       '/render/bundle',
       {
         schema: {
           body: renderBodySchema,
-          querystring: storeQuerySchema,
+          querystring: renderQuerySchema,
           tags: ['render'],
           summary: 'Render PNG + PDF in a single round-trip',
           description: [
-            'Renders both formats in parallel. Wall-clock time = max(PNG, PDF), not sum.',
+            'Default output: PNG + PDF (multi-format JSON). Wall-clock time = max(PNG, PDF), not sum.',
             '',
-            'Default response: JSON `{png: <base64>, pdf: <base64>, engineUsed: {png, pdf}, ...}`.',
-            'With `?store=true`: JSON `{png: {id, url, size}, pdf: {id, url, size}, engineUsed, expiresAt, ...}`.',
+            'Response shape varies with `?store`:',
+            '- omitted → `{ png: {data: <base64>}, pdf: {data: <base64>}, engineUsed: {png, pdf}, ... }` (legacy)',
+            '- `url` → `{ png: {id, url, size}, pdf: {id, url, size}, expiresAt, ... }`',
+            '- `data` → same as omitted',
+            '- `url+data` → both `{id, url, size, data}` per format',
             '',
-            'Counts as **one** request against the rate-limit bucket — efficient when callers need both.'
+            'Set `?output=png` or `?output=pdf` to render only one format on this endpoint.',
+            '',
+            'Counts as one request against the rate-limit bucket regardless of format count.'
           ].join('\n')
         }
       },
@@ -41,18 +47,26 @@ export const buildBundleRoute =
         if (areaErr) {
           return reply.code(400).send({ error: 'invalid_dimensions', message: areaErr });
         }
-        const input: RenderInput = {
-          html: req.body.html,
-          css: req.body.css,
-          data: req.body.data,
-          width,
-          height,
-          engine: req.body.engine ?? 'auto',
-          timeoutMs: clampTimeout(req.body.timeoutMs)
-        };
+        const output = parseOutput(req.query.output, { png: true, pdf: true });
+        const store = parseStore(req.query.store);
         try {
-          const [png, pdf] = await Promise.all([renderPng(input), renderPdf(input)]);
-          return bundleResponse(files, png, pdf, width, height, shouldStore(req.query));
+          const result = await dispatchRender({
+            input: {
+              html: req.body.html,
+              css: req.body.css,
+              data: req.body.data,
+              width,
+              height,
+              engine: req.body.engine ?? 'auto',
+              timeoutMs: clampTimeout(req.body.timeoutMs)
+            },
+            output,
+            store,
+            files,
+            width,
+            height
+          });
+          return sendRender(reply, result);
         } catch (err) {
           req.log.error({ err }, 'render_bundle_failed');
           return reply.code(500).send({

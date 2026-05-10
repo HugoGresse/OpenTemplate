@@ -22,7 +22,7 @@ const EnvSchema = z.object({
 
   TEMPLATES_DIR: z.string().default('./templates'),
   FILES_DIR: z.string().default('./files'),
-  // TTL for stored render outputs (?store=true). Default 24h.
+  // TTL for stored render outputs (?store=url). Default 24h.
   FILES_TTL_SECONDS: z.coerce.number().int().min(60).default(86_400),
   FILES_PUBLIC_BASE_URL: z.string().optional(),
 

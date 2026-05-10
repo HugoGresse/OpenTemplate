@@ -1,35 +1,34 @@
 import type { FastifyPluginAsync } from 'fastify';
-import { renderPdf, renderPng, type RenderInput } from '../../engines/render.js';
 import { config } from '../../config.js';
 import type { TemplateStore } from '../../storage/fs.js';
 import type { FilesStore } from '../../storage/files.js';
 import {
-  bundleResponse,
   checkPixelArea,
   clampTimeout,
-  shouldStore,
-  storeQuerySchema,
+  dispatchRender,
+  parseOutput,
+  parseStore,
+  renderQuerySchema,
+  sendRender,
   storedRenderBodySchema,
-  type StoreQuery,
+  type RenderQuery,
   type StoredBody
 } from './_shared.js';
 
 export const buildStoredBundleRoute =
   (templates: TemplateStore, files: FilesStore): FastifyPluginAsync =>
   async (app) => {
-    app.post<{ Params: { id: string }; Body: StoredBody; Querystring: StoreQuery }>(
+    app.post<{ Params: { id: string }; Body: StoredBody; Querystring: RenderQuery }>(
       '/render/:id/bundle',
       {
         schema: {
           body: storedRenderBodySchema,
-          querystring: storeQuerySchema,
+          querystring: renderQuerySchema,
           tags: ['render'],
           summary: 'Render a stored template as PNG + PDF',
-          description: [
-            'Parallel render of both formats for the stored template. Same body shape as ',
-            '`/render/{id}/png`. Response shape mirrors `/render/bundle` (binary base64 by default, ',
-            'paired URLs with `?store=true`).'
-          ].join('\n')
+          description:
+            'Parallel render of both formats for the stored template. Same body shape as ' +
+            '`/render/{id}/png`. Same `?output=` and `?store=` semantics as `/render/bundle`.'
         }
       },
       async (req, reply) => {
@@ -41,18 +40,26 @@ export const buildStoredBundleRoute =
         if (areaErr) {
           return reply.code(400).send({ error: 'invalid_dimensions', message: areaErr });
         }
-        const input: RenderInput = {
-          html: tpl.html,
-          css: tpl.css,
-          data: req.body?.data ?? tpl.sampleData,
-          width,
-          height,
-          engine: tpl.engine ?? 'auto',
-          timeoutMs: clampTimeout(req.body?.timeoutMs)
-        };
+        const output = parseOutput(req.query.output, { png: true, pdf: true });
+        const store = parseStore(req.query.store);
         try {
-          const [png, pdf] = await Promise.all([renderPng(input), renderPdf(input)]);
-          return bundleResponse(files, png, pdf, width, height, shouldStore(req.query));
+          const result = await dispatchRender({
+            input: {
+              html: tpl.html,
+              css: tpl.css,
+              data: req.body?.data ?? tpl.sampleData,
+              width,
+              height,
+              engine: tpl.engine ?? 'auto',
+              timeoutMs: clampTimeout(req.body?.timeoutMs)
+            },
+            output,
+            store,
+            files,
+            width,
+            height
+          });
+          return sendRender(reply, result);
         } catch (err) {
           req.log.error({ err, templateId: req.params.id }, 'render_stored_bundle_failed');
           return reply.code(500).send({
