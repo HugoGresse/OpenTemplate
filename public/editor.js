@@ -471,19 +471,32 @@ function buildSnippet(kind) {
   const tplId = $('tplList').value;
 
   const formatBody = (b) => JSON.stringify(b, null, 2);
+  const shellEscape = (s) => s.replace(/'/g, "'\\''");
 
-  if (kind === 'bundle-stored') {
+  if (kind === 'stored-png' || kind === 'stored-pdf' || kind === 'stored-bundle') {
     if (!tplId) {
-      return '# Save the template first, then select it from the list to use this snippet.';
+      return '# Select a stored template from the dropdown first (Save the current one if needed).';
     }
+    const ext = kind === 'stored-pdf' ? 'pdf' : kind === 'stored-bundle' ? 'bundle' : 'png';
+    const out =
+      ext === 'pdf' ? ' -o out.pdf' : ext === 'bundle' ? ' -o bundle.json' : ' -o out.png';
+    const note =
+      ext === 'bundle'
+        ? '# Response: { png:base64, pdf:base64, engineUsed:{png,pdf}, width, height }'
+        : ext === 'pdf'
+          ? '# Response is application/pdf — write to file'
+          : '# Response is image/png — write to file';
     const data = body.data ?? {};
+    const hasData = Object.keys(data).length > 0;
+    const payload = hasData ? { data } : {};
     return [
-      `curl -X POST "${origin}/render/${tplId}/bundle" \\`,
+      `# Render stored template ${tplId} (sampleData used if "data" omitted).`,
+      `curl -X POST "${origin}/render/${tplId}/${ext}"${out} \\`,
       `  -H "x-api-key: ${apiKey}" \\`,
       `  -H "content-type: application/json" \\`,
-      `  -d '${formatBody({ data }).replace(/'/g, "'\\''")}'`,
+      `  -d '${shellEscape(formatBody(payload))}'`,
       ``,
-      `# Response: { png: base64, pdf: base64, engineUsed: {...}, width, height }`
+      note
     ].join('\n');
   }
 
@@ -491,7 +504,7 @@ function buildSnippet(kind) {
     kind === 'pdf' ? '/render/pdf' : kind === 'bundle' ? '/render/bundle' : '/render/png';
   const note =
     kind === 'bundle'
-      ? '# Response is JSON — base64 png + base64 pdf'
+      ? '# Response: { png:base64, pdf:base64, engineUsed:{png,pdf}, width, height }'
       : kind === 'pdf'
         ? '# Response is application/pdf — write to file'
         : '# Response is image/png — write to file';
@@ -502,7 +515,7 @@ function buildSnippet(kind) {
     `curl -X POST "${origin}${path}"${out} \\`,
     `  -H "x-api-key: ${apiKey}" \\`,
     `  -H "content-type: application/json" \\`,
-    `  -d '${formatBody(body).replace(/'/g, "'\\''")}'`,
+    `  -d '${shellEscape(formatBody(body))}'`,
     ``,
     note
   ].join('\n');
