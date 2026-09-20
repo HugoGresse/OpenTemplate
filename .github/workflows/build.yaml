@@ -1,0 +1,93 @@
+name: build
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .dockerignore
+      - .github/workflows/build.yaml
+      - Dockerfile
+      - package-lock.json
+      - package.json
+      - public/**
+      - scripts/**
+      - src/**
+      - tsconfig.json
+  pull_request:
+    paths:
+      - .dockerignore
+      - .github/workflows/build.yaml
+      - Dockerfile
+      - package-lock.json
+      - package.json
+      - public/**
+      - scripts/**
+      - src/**
+      - tsconfig.json
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  IMAGE: opentemplate:ci
+  API_KEY: ci-smoke-key
+
+jobs:
+  image:
+    name: build and smoke-test the image
+    runs-on: ubuntu-24.04
+    steps:
+      - name: check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: build the image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          load: true
+          push: false
+          tags: ${{ env.IMAGE }}
+          cache-from: type=gha,scope=amd64
+          cache-to: type=gha,mode=max,scope=amd64
+
+      # The `puppeteer` package and the ghcr.io/puppeteer/puppeteer base image must move
+      # together: a mismatch only shows at runtime ("Could not find Chrome"), and the test
+      # suite mocks the engines. Rendering for real is what catches a bad dependency bump.
+      - name: smoke-test real renders
+        run: |
+          docker run --detach --name app --env API_KEYS="$API_KEY" --publish 3000:3000 "$IMAGE"
+
+          for _ in $(seq 1 30); do
+            status="$(docker inspect --format '{{.State.Health.Status}}' app)"
+            [ "$status" = healthy ] && break
+            sleep 2
+          done
+          docker logs app
+          test "$status" = healthy
+
+          render() {
+            curl --fail --silent --max-time 120 --output "$2" \
+              --header "authorization: Bearer $API_KEY" --header 'content-type: application/json' \
+              --data "$3" "http://127.0.0.1:3000/render/$1"
+          }
+
+          render pdf out.pdf '{"html":"<div style=\"font-size:40px\">smoke</div>","width":400,"height":200,"engine":"puppeteer"}'
+          test "$(head --bytes 5 out.pdf)" = '%PDF-'
+
+          render png out.png '{"html":"<div style=\"display:flex;font-size:40px\">smoke</div>","width":400,"height":200,"engine":"satori"}'
+          test "$(head --bytes 4 out.png | tail --bytes 3)" = PNG
+
+          test "$(curl --silent --output /dev/null --write-out '%{http_code}' \
+            --header 'content-type: application/json' --data '{"html":"x"}' \
+            http://127.0.0.1:3000/render/png)" = 401
