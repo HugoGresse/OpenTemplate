@@ -1,0 +1,25 @@
+version: 2
+
+multi-ecosystem-groups:
+  monthly-dependencies:
+    schedule:
+      interval: monthly
+
+updates:
+  - package-ecosystem: npm
+    directory: /
+    patterns:
+      - "*"
+    multi-ecosystem-group: monthly-dependencies
+
+  - package-ecosystem: docker
+    directory: /
+    patterns:
+      - "*"
+    multi-ecosystem-group: monthly-dependencies
+
+  - package-ecosystem: github-actions
+    directory: /
+    patterns:
+      - "*"
+    multi-ecosystem-group: monthly-dependencies
