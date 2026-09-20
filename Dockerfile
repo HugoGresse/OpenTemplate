@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.7
 
 # ---------- builder ----------
-FROM node:24-bookworm-slim AS builder
+FROM node:24-bookworm-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6 AS builder
 WORKDIR /app
 
 # Force a development install in the builder regardless of any NODE_ENV
@@ -32,7 +32,7 @@ RUN npm run build && npm prune --omit=dev
 # package.json. The base image ships a Chromium build matched to a specific
 # puppeteer release; a mismatch produces "Could not find Chrome (ver. X)" at
 # runtime.
-FROM ghcr.io/puppeteer/puppeteer:24.43.0 AS runtime
+FROM ghcr.io/puppeteer/puppeteer:25.11.0@sha256:6a09af5f3d7db9780d1ac94ce4f6664d6d0bff23bdcab175816ceb2e29fa273d AS runtime
 
 WORKDIR /home/pptruser/app
 
@@ -58,6 +58,15 @@ ENV NODE_ENV=production \
 # entrypoint can chown freshly-mounted volumes at start time. The entrypoint
 # drops privileges to pptruser before exec'ing node.
 USER root
+
+# The upstream Puppeteer image lags behind Debian security updates (125 fixable HIGH
+# findings on 25.11.0), so patch the OS packages at build time. The digest pin above keeps
+# the base reproducible; rebuilding picks up the patches. npm is not needed at runtime
+# (the app is started with `node`), and its bundled dependencies carry their own CVEs.
+RUN apt-get update \
+    && apt-get -y upgrade \
+    && rm -rf /var/lib/apt/lists/* \
+    && rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx
 
 RUN mkdir -p /data/templates /data/files \
     && chown -R pptruser:pptruser /data \

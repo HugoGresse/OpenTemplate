@@ -40,7 +40,7 @@ env:
 
 jobs:
   image:
-    name: build and smoke-test the image
+    name: build, scan and smoke-test the image
     runs-on: ubuntu-24.04
     steps:
       - name: check out the repository
@@ -60,6 +60,17 @@ jobs:
           tags: ${{ env.IMAGE }}
           cache-from: type=gha,scope=amd64
           cache-to: type=gha,mode=max,scope=amd64
+
+      - name: scan the image for vulnerabilities
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: image
+          image-ref: ${{ env.IMAGE }}
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+          cache: true
 
       # The `puppeteer` package and the ghcr.io/puppeteer/puppeteer base image must move
       # together: a mismatch only shows at runtime ("Could not find Chrome"), and the test
