@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.7
 
 # ---------- builder ----------
-FROM node:24-bookworm-slim AS builder
+FROM node:25-bookworm-slim AS builder
 WORKDIR /app
 
 # Force a development install in the builder regardless of any NODE_ENV
@@ -32,7 +32,7 @@ RUN npm run build && npm prune --omit=dev
 # package.json. The base image ships a Chromium build matched to a specific
 # puppeteer release; a mismatch produces "Could not find Chrome (ver. X)" at
 # runtime.
-FROM ghcr.io/puppeteer/puppeteer:24.43.0 AS runtime
+FROM ghcr.io/puppeteer/puppeteer:25.11.0 AS runtime
 
 WORKDIR /home/pptruser/app
 
